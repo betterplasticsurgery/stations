@@ -1301,13 +1301,17 @@ const BASE = {
   stepUp:     {dur:2600, prop:"box", frames:[[8,...AH,...[54,-30,88, -6,4,88]],
                                              [6,...AH,...[10,-8,88, -22,10,70]]]},
   lungeLat:   {view:"front", dur:3000, frames:[[4,...AH,...LST],
-                                 [16,...AFW,...[38,-32,88, 30,-28,88]],
+                                 [16,...AG,...[45,0,85,   60, 60,-25]],
                                  [4,...AH,...LST],
-                                 [16,...AFW,...[30,-28,88, 38,-32,88]]]},
+                                 [16,...AG,...[-60,-60,25, 45,0,85]]]},
+  /* Front view fakes depth: the shin angle reads as the leg swinging
+     sideways, not as knee flexion. The weighted leg bends, the other
+     goes straight out — so the far side has to be negated, not just
+     swapped, or the mirror bends that knee backwards. */
   cossack:    {view:"front", dur:3400, frames:[[4,...AH,...LST],
-                                 [20,...AG,...[66,-46,88, 26,-24,60]],
+                                 [10,...AG,...[50,-10,80,  70, 70,-20]],
                                  [4,...AH,...LST],
-                                 [20,...AG,...[26,-24,60, 66,-46,88]]]},
+                                 [10,...AG,...[-70,-70,20, 50,-10,80]]]},
 
   /* ---- hinge family ---- */
   hinge:      {dur:2800, frames:[[4,...AH,...LST],[74,0,0,0,0,...[-14,14,88,-18,18,88]]]},
@@ -1355,23 +1359,29 @@ const BASE = {
                                  [86,4,0,0,4,...[-88,4,-40,-88,4,-40]],
                                  [86,0,4,158,158,...[-176,-176,-140,-88,4,-40]]]},
   deadBug:    {dur:2800, frames:[[-90,176,176,172,172,...[140,90,140,136,86,136]],
-                                 [-90,176,176,-100,-100,...[140,90,140,176,176,140]],
+                                 [-90,176,176,260,260,...[140,90,140,176,176,140]],
                                  [-90,176,176,172,172,...[140,90,140,136,86,136]],
-                                 [-90,-100,-100,172,172,...[176,176,140,136,86,136]]]},
+                                 [-90,260,260,172,172,...[176,176,140,136,86,136]]]},
   hollow:     {dur:2600, frames:[[-66,-112,-112,-108,-108,...[118,118,150,114,114,146]],
                                  [-62,-110,-110,-106,-106,...[124,124,150,120,120,146]]]},
   flutter:    {dur:800,  frames:[[-80,-96,-96,-92,-92,...[112,112,150,134,134,150]],
                                  [-80,-96,-96,-92,-92,...[134,134,150,112,112,150]]]},
   bicycle:    {dur:1600, frames:[[-62,140,-160,136,-164,...[140,90,140,110,110,150]],
                                  [-62,140,-160,136,-164,...[110,110,150,140,90,140]]]},
+  /* Angles interpolate linearly, so the value you write picks which way
+     the limb travels. Lying on your back, an arm sweeping between
+     overhead and the feet must pass through straight up (±180), not
+     through zero — zero is straight down, i.e. through the floor.
+     These read as an equivalent angle on the far side for that reason;
+     do not "simplify" them back into range. */
   vup:        {dur:2200, frames:[[-90,-92,-92,-88,-88,...[90,90,130,90,90,130]],
-                                 [-50,110,110,106,106,...[130,130,150,126,126,146]]]},
+                                 [-50,-250,-250,-254,-254,...[130,130,150,126,126,146]]]},
   toeTouch:   {dur:1900, frames:[[-84,-100,-100,-96,-96,...[176,176,140,172,172,136]],
-                                 [-58,160,160,156,156,...[176,176,140,172,172,136]]]},
+                                 [-58,-200,-200,-204,-204,...[176,176,140,172,172,136]]]},
   russian:    {view:"front", dur:2200, frames:[[-30,80,110,-80,-110,...[126,44,50,126,44,50]],
                                                [-30,-80,-110,80,110,...[126,44,50,126,44,50]]]},
   situpPress: {dur:2600, frames:[[-88,-96,-96,-92,-92,...[132,42,60,128,38,60]],
-                                 [-20,176,176,172,172,...[132,42,60,128,38,60]]]},
+                                 [-20,-184,-184,-188,-188,...[132,42,60,128,38,60]]]},
   windmill:   {dur:2800, frames:[[8,176,176,6,8,...[6,-4,88,-4,4,88]],
                                  [64,176,176,52,50,...[-20,18,88,-8,8,88]]]},
 
@@ -1385,12 +1395,17 @@ const BASE = {
                                  [2,176,176,6,8,...LST]]},
   cleanPress: {dur:2600, frames:[[72,-6,-6,-2,-2,...[-14,14,88,-18,18,88]],
                                  [4,...AR,...LQT],[2,...AO,...LST]]},
-  floorPress: {dur:2200, frames:[[-90,-150,158,-146,154,...[136,44,60,132,40,60]],
+  floorPress: {dur:2200, frames:[[-90,105,200,101,196,...[136,44,60,132,40,60]],
                                  [-90,176,176,172,172,...[136,44,60,132,40,60]]]},
+  /* Straight arms opening overhead. The old -128 swept them so far back
+     the weight ended up under the floor, which then hoisted the whole
+     body off the ground once prop grounding went in. */
   fly:        {dur:2400, frames:[[-90,176,176,172,172,...[136,44,60,132,40,60]],
-                                 [-90,-128,-128,-124,-124,...[136,44,60,132,40,60]]]},
+                                 [-90,205,205,201,201,...[136,44,60,132,40,60]]]},
+  /* Stops just short of the floor. Reaching all the way back put the
+     plate under the ground, which lifted the whole body off it. */
   pullover:   {dur:2400, frames:[[-90,176,176,172,172,...[136,44,60,132,40,60]],
-                                 [-90,-100,-100,-96,-96,...[136,44,60,132,40,60]]]},
+                                 [-90,235,235,231,231,...[136,44,60,132,40,60]]]},
 
   /* ---- pull family ---- */
   rowBent:    {dur:2000, frames:[[76,0,0,0,0,...[-14,14,88,-18,18,88]],
@@ -1405,7 +1420,7 @@ const BASE = {
                frames:[[2,176,176,172,172,...LHG],
                        [2,110,250,106,246,...[-6,4,70,-10,8,70]]]},
   invRow:     {dur:2200, prop:"bar", frames:[[-70,-160,-160,-156,-156,...[96,92,20, 92,96,20]],
-                                             [-58,-120,160,-116,156,...[96,92,20, 92,96,20]]]},
+                                             [-58,-120,-200,-116,-204,...[96,92,20, 92,96,20]]]},
   pronePull:  {dur:2400, frames:[[92,150,150,146,146,...[-92,-90,-40,-94,-86,-38]],
                                  [92,60,50,56,46,...[-92,-90,-40,-94,-86,-38]]]},
   towelRow:   {dur:1800, frames:[[6,60,90,56,86,...LST],[6,10,110,6,106,...LST]]},
@@ -2046,26 +2061,6 @@ function musProvider(u){
   if (/mixcloud\.com\//i.test(s))   return "mixcloud";
   return "";
 }
-/* People paste whatever the share sheet hands them. The mobile host
-   m.soundcloud.com resolves fine through oEmbed but the *widget* rejects it
-   outright with "not a valid SoundCloud URL", and share links arrive carrying
-   ?si= tracking params. Normalise before anything downstream sees the URL.
-   secret_token is deliberately preserved — stripping it kills private links. */
-function musNormalize(raw){
-  let s = String(raw||"").trim();
-  if (!s) return "";
-  s = s.replace(/^https?:\/\//i, "");
-  s = s.replace(/^(?:m|mobile|www)\.((?:soundcloud|mixcloud)\.com\/)/i, "$1");
-  s = "https://" + s;
-  try{
-    const u = new URL(s);
-    ["si","utm_source","utm_medium","utm_campaign","utm_content","utm_term","ref"]
-      .forEach(k => u.searchParams.delete(k));
-    u.hash = "";
-    s = u.toString().replace(/\?$/, "");
-  }catch(e){}
-  return s;
-}
 function mixKey(input){
   const m = String(input||"").match(/mixcloud\.com\/([^\/\s?#]+)\/([^\/\s?#]+)/i);
   return m ? "/" + m[1] + "/" + m[2] + "/" : "";
@@ -2270,7 +2265,7 @@ function musRender(){
   if (sum) sum.textContent = !MUS.on ? "Off" : (loaded ? (MUS.name || "Ready") : "On — no mix yet");
 }
 async function musUse(raw){
-  const url = musNormalize(raw);
+  const url = String(raw||"").trim();
   const prov = musProvider(url);
   if (!prov){ MUS.err = "Paste a SoundCloud or Mixcloud link"; musRender(); return; }
   MUS.err = ""; MUS.loading = true; MUS.ready = false; MUS.widget = null;
