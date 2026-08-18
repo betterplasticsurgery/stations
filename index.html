@@ -141,6 +141,31 @@ details.sec[open] > summary{border-bottom:1px solid var(--line)}
   content:"✓";position:absolute;top:13px;right:14px;font-size:13px;font-weight:800;color:var(--ink)
 }
 
+/* ---------- physique picker ---------- */
+.phys{
+  background:var(--panel);border:1.5px solid var(--line);border-radius:var(--radius);
+  padding:12px 10px 13px;display:flex;flex-direction:column;align-items:center;
+  transition:.14s;text-align:center;position:relative
+}
+.phys:hover{border-color:#3a3a42}
+.phys.on{border-color:var(--ink);background:#141417}
+.phys canvas{width:100%;height:112px;display:block;margin-bottom:9px}
+.phys .nm{font-weight:750;font-size:14px;color:var(--dim)}
+.phys.on .nm{color:var(--ink)}
+.phys .ds{font-size:11.5px;color:var(--dim2);line-height:1.4;margin-top:3px}
+.phys.on .ds{color:var(--dim)}
+.hint{font-size:12px;color:var(--dim2);line-height:1.55;margin:9px 2px 0}
+
+/* ---------- instagram ---------- */
+.iglink{
+  display:inline-flex;align-items:center;gap:9px;text-decoration:none;color:var(--dim);
+  border:1px solid var(--line);background:var(--panel);border-radius:999px;
+  padding:10px 16px;font-size:13px;font-weight:700;transition:.14s
+}
+.iglink:hover{color:var(--txt);border-color:#3a3a42}
+.iglink svg{width:17px;height:17px;flex:0 0 17px;display:block}
+.ighome{opacity:0;animation:hfade .7s ease forwards 2.7s;margin-top:16px}
+
 .chip{
   background:var(--panel);border:1.5px solid var(--line);border-radius:12px;
   padding:13px 12px;min-height:48px;font-size:13.5px;font-weight:650;text-align:center;
@@ -370,6 +395,13 @@ body.mixon .foot{display:none}
 
     <div class="hcta"><button class="btn primary wide" id="homego">Build my session</button></div>
     <p class="hnote">45 minutes · two halves · no account, no sign-in</p>
+    <a class="iglink ighome" href="https://www.instagram.com/stationsfitapp/" target="_blank" rel="noopener">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <rect x="2.6" y="2.6" width="18.8" height="18.8" rx="5.4"/>
+        <circle cx="12" cy="12" r="4.1"/>
+        <circle cx="17.4" cy="6.6" r="1.15" fill="currentColor" stroke="none"/>
+      </svg><span>@stationsfitapp</span>
+    </a>
   </div>
 </div>
 
@@ -391,8 +423,14 @@ body.mixon .foot{display:none}
     <div class="grid p4" id="equip"></div>
   </div>
 
+  <div class="section">
+    <h2>What are you training for</h2>
+    <div class="grid p4" id="goals"></div>
+    <p class="hint" id="goalHint"></p>
+  </div>
+
   <details class="sec" id="secStructure">
-    <summary><span class="sh">Structure</span><span class="sv" id="structSum">45:00</span><span class="sc">›</span></summary>
+    <summary><span class="sh">Customise the stations</span><span class="sv" id="structSum">45:00</span><span class="sc">›</span></summary>
     <div class="secbody">
       <div class="cfgrow">
         <div class="half a">
@@ -468,6 +506,7 @@ body.mixon .foot{display:none}
         </div>
 
         <div class="mstat bad" id="mixStat">No mix or playlist chosen yet</div>
+        <button class="linkbtn hide" id="mixForget" style="margin-top:8px">Forget the saved link</button>
         <p class="mnote" style="margin-top:14px"><b>SoundCloud playlist</b> — a different track at every station, dropped into partway so you skip the intro. <b>Mixcloud mix</b> — one continuous DJ set, and if the uploader added a tracklist you’ll see what’s playing. Needs internet; everything else works offline.</p>
       </div>
     </div>
@@ -553,6 +592,15 @@ body.mixon .foot{display:none}
     <div class="btnrow" style="justify-content:center">
       <button class="btn primary" id="again">Run it again</button>
       <button class="btn" id="newone">Build a new one</button>
+    </div>
+    <div style="margin-top:26px">
+      <a class="iglink" href="https://www.instagram.com/stationsfitapp/" target="_blank" rel="noopener">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect x="2.6" y="2.6" width="18.8" height="18.8" rx="5.4"/>
+          <circle cx="12" cy="12" r="4.1"/>
+          <circle cx="17.4" cy="6.6" r="1.15" fill="currentColor" stroke="none"/>
+        </svg><span>Tag us @stationsfitapp</span>
+      </a>
     </div>
   </div>
 </div>
@@ -706,11 +754,101 @@ const PRESETS = [
   halves:[{stations:6,work:40,rest:20,rounds:2,focus:"strength"},{stations:6,work:40,rest:20,rounds:2,focus:"cardio"}]}
 ];
 
+/* ---------------------------------------------------------
+   GOALS — "what are you training for"
+   focus  : the emphasis applied to half 1 and half 2
+   shift  : seconds moved from rest into work. work+rest is held
+            constant, so the session still totals to the second.
+   --------------------------------------------------------- */
+const GOALS = [
+  {id:"lean",     name:"Lean",      ds:"Long efforts, short recoveries",
+   focus:["cardio","cardio"],       shift:5},
+  {id:"athletic", name:"Athletic",  ds:"Strength first, engine second",
+   focus:["strength","cardio"],     shift:0},
+  {id:"strong",   name:"Strong",    ds:"Heavy work, real rest",
+   focus:["strength","strength"],   shift:-5},
+  {id:"allround", name:"All-round", ds:"Every pattern, no bias",
+   focus:["mixed","mixed"],         shift:0}
+];
+
+/* Silhouette proportions. Widths are half-widths as a fraction of
+   figure height; the four builds differ in taper and limb mass. */
+const PHYS = {
+  lean:     {sh:.104, chest:.090, waist:.062, hip:.078, arm:.020, leg:.034, head:.047},
+  athletic: {sh:.123, chest:.107, waist:.075, hip:.088, arm:.026, leg:.040, head:.049},
+  strong:   {sh:.150, chest:.133, waist:.093, hip:.102, arm:.036, leg:.050, head:.051},
+  allround: {sh:.131, chest:.114, waist:.081, hip:.093, arm:.028, leg:.042, head:.049}
+};
+
+function drawPhysique(ctx, W, H, id, on){
+  const q = PHYS[id] || PHYS.athletic;
+  ctx.clearRect(0,0,W,H);
+  const b  = Math.min(H*0.97, W*2.6);         // figure height
+  const cx = W/2, top = (H - b)/2;
+  const y  = f => top + b*f;
+  const col = on ? "#ffffff" : "#4e4e56";
+  ctx.fillStyle = col; ctx.strokeStyle = col;
+  ctx.lineCap = "round"; ctx.lineJoin = "round";
+
+  const shY=.175, chY=.262, waY=.378, hiY=.458, crY=.505, knY=.725, anY=.950;
+
+  // legs, then arms, then torso on top — overlaps read as one body
+  const legW = q.leg*2*b;
+  [-1,1].forEach(sd => {
+    ctx.lineWidth = legW;                      // thigh
+    ctx.beginPath();
+    ctx.moveTo(cx + sd*q.hip*b*0.56, y(crY - .02));
+    ctx.lineTo(cx + sd*q.hip*b*0.62, y(knY));
+    ctx.stroke();
+    ctx.lineWidth = legW*0.72;                 // calf
+    ctx.beginPath();
+    ctx.moveTo(cx + sd*q.hip*b*0.62, y(knY));
+    ctx.lineTo(cx + sd*q.hip*b*0.54, y(anY));
+    ctx.stroke();
+    ctx.lineWidth = legW*0.52;                 // foot
+    ctx.beginPath();
+    ctx.moveTo(cx + sd*q.hip*b*0.54, y(anY));
+    ctx.lineTo(cx + sd*(q.hip*b*0.54 + b*.042), y(anY));
+    ctx.stroke();
+  });
+  const armW = q.arm*2*b;
+  [-1,1].forEach(sd => {
+    ctx.lineWidth = armW;                      // upper arm
+    ctx.beginPath();
+    ctx.moveTo(cx + sd*q.sh*b*0.84, y(shY + .015));
+    ctx.lineTo(cx + sd*q.sh*b*1.12, y(.365));
+    ctx.stroke();
+    ctx.lineWidth = armW*0.78;                 // forearm + hand
+    ctx.beginPath();
+    ctx.moveTo(cx + sd*q.sh*b*1.12, y(.365));
+    ctx.lineTo(cx + sd*q.sh*b*1.30, y(.545));
+    ctx.stroke();
+  });
+
+  // torso: shoulders -> chest -> waist -> hips
+  ctx.beginPath();
+  ctx.moveTo(cx - q.sh*b, y(shY));
+  ctx.quadraticCurveTo(cx - q.chest*b*1.06, y(chY), cx - q.waist*b, y(waY));
+  ctx.quadraticCurveTo(cx - q.hip*b*0.98,   y(hiY), cx - q.hip*b*0.72, y(crY));
+  ctx.lineTo(cx + q.hip*b*0.72, y(crY));
+  ctx.quadraticCurveTo(cx + q.hip*b*0.98,   y(hiY), cx + q.waist*b, y(waY));
+  ctx.quadraticCurveTo(cx + q.chest*b*1.06, y(chY), cx + q.sh*b,    y(shY));
+  ctx.quadraticCurveTo(cx, y(shY) - b*0.028, cx - q.sh*b, y(shY));   // traps
+  ctx.closePath(); ctx.fill();
+
+  // neck + head
+  ctx.lineWidth = q.head*b*0.80;
+  ctx.beginPath(); ctx.moveTo(cx, y(shY)); ctx.lineTo(cx, y(.128)); ctx.stroke();
+  ctx.beginPath(); ctx.arc(cx, y(.062), q.head*b, 0, 7); ctx.fill();
+}
+
 /* =========================================================
    3. STATE
    ========================================================= */
 const S = {
   presetId:"hybrid",
+  goalId:"athletic",   // which physique they're training for
+  goalShift:0,         // seconds already moved from rest into work by the goal
   equip:{bw:true, dbkb:true, machine:true},
   cfg:null,        // {warmup, halftime, cooldown, halves:[{stations,work,rest,rounds,focus}]}
   workout:null,    // {halves:[{...cfg, stations:[ex]}]}
@@ -725,6 +863,20 @@ const mmss = s => { s=Math.max(0,Math.round(s)); const m=Math.floor(s/60); retur
 const clone = o => JSON.parse(JSON.stringify(o));
 
 function cfgFromPreset(p){ return {warmup:p.warmup, halftime:p.halftime, cooldown:p.cooldown, halves:clone(p.halves)}; }
+
+/* Move d seconds from rest into work (negative = the other way).
+   work+rest is unchanged, so the half's duration is unchanged. */
+function shiftHalf(h, d){
+  const w = h.work + d, r = h.rest - d;
+  if (w >= 10 && w <= 120 && r >= 0 && r <= 90){ h.work = w; h.rest = r; }
+}
+function goalById(id){ return GOALS.find(g => g.id === id) || null; }
+/* A clean config built from a format preset with a goal laid over it. */
+function cfgFor(p, g){
+  const c = cfgFromPreset(p);
+  if (g) c.halves.forEach((h,i) => { h.focus = g.focus[i] || g.focus[0]; shiftHalf(h, g.shift); });
+  return c;
+}
 
 /* =========================================================
    4. TIMING MATH
@@ -1295,18 +1447,65 @@ function setCfg(k,v){ const m=/^h(\d)\.(\w+)$/.exec(k); if(m) S.cfg.halves[+m[1]
 
 function renderPresets(){
   $("#presets").innerHTML = PRESETS.map(p => {
-    const t = totalSeconds(cfgFromPreset(p));
-    const meta = p.halves.map(h => h.stations+" × "+h.work+"/"+h.rest+"s × "+h.rounds).join("   ·   ");
+    const c = cfgFor(p, goalById(S.goalId));
+    const t = totalSeconds(c);
+    const meta = c.halves.map(h => h.stations+" × "+h.work+"/"+h.rest+"s × "+h.rounds).join("   ·   ");
     return '<button class="preset'+(p.id===S.presetId?" on":"")+'" data-p="'+p.id+'">'+
       '<div class="nm">'+p.name+'</div><div class="ds">'+p.ds+'</div>'+
       '<div class="mt">'+mmss(t)+'   ·   '+meta+'</div></button>';
   }).join("");
   $$("#presets .preset").forEach(b => b.onclick = () => {
     S.presetId = b.dataset.p;
-    S.cfg = cfgFromPreset(PRESETS.find(p=>p.id===S.presetId));
+    const g = goalById(S.goalId);
+    S.cfg = cfgFor(PRESETS.find(p=>p.id===S.presetId), g);
+    S.goalShift = g ? g.shift : 0;
     renderPresets(); renderConfig();
   });
 }
+function renderGoals(){
+  $("#goals").innerHTML = GOALS.map(g =>
+    '<button class="phys'+(g.id===S.goalId?" on":"")+'" data-g="'+g.id+'">'+
+    '<canvas data-fig="'+g.id+'"></canvas>'+
+    '<div class="nm">'+g.name+'</div><div class="ds">'+g.ds+'</div></button>').join("");
+  $$("#goals .phys").forEach(b => b.onclick = () => setGoal(b.dataset.g));
+  paintPhysiques();
+  const g = goalById(S.goalId);
+  $("#goalHint").textContent = g
+    ? "Sets the emphasis for each half" + (g.shift
+        ? " and moves " + Math.abs(g.shift) + "s " +
+          (g.shift > 0 ? "from rest into work" : "from work into rest") +
+          ". The session still totals the same."
+        : ". Timing is left as the format sets it.")
+    : "Custom — the emphasis no longer matches any of these.";
+}
+function paintPhysiques(){
+  $$("#goals canvas").forEach(c => {
+    const r = c.getBoundingClientRect();
+    if (!r.width || !r.height) return;
+    const dpr = Math.min(window.devicePixelRatio || 1, 2.5);
+    c.width = Math.round(r.width*dpr); c.height = Math.round(r.height*dpr);
+    const ctx = c.getContext("2d"); ctx.setTransform(dpr,0,0,dpr,0,0);
+    drawPhysique(ctx, r.width, r.height, c.dataset.fig, c.dataset.fig === S.goalId);
+  });
+}
+window.addEventListener("resize", () => { if ($("#goals").children.length) paintPhysiques(); });
+
+function setGoal(id){
+  const g = goalById(id), p = PRESETS.find(x => x.id === S.presetId);
+  S.goalId = id;
+  if (p){
+    S.cfg = cfgFor(p, g);                 // clean rebuild from the preset
+  } else {
+    const d = (g ? g.shift : 0) - S.goalShift;   // only the delta, never double-shift
+    S.cfg.halves.forEach((h,i) => {
+      if (g) h.focus = g.focus[i] || g.focus[0];
+      if (d) shiftHalf(h, d);
+    });
+  }
+  S.goalShift = g ? g.shift : 0;
+  renderGoals(); renderPresets(); renderConfig();
+}
+
 function renderEquip(){
   $("#equip").innerHTML = EQUIP.map(e =>
     '<button class="chip'+(S.equip[e.k]?" on":"")+'" data-e="'+e.k+'">'+e.label+'</button>').join("")
@@ -1343,8 +1542,12 @@ function renderConfig(){
   updateTotal();
 }
 function markCustom(){
+  const g = goalById(S.goalId);
+  if (g && S.cfg.halves.some((h,i) => h.focus !== (g.focus[i] || g.focus[0]))){
+    S.goalId = null; renderGoals();
+  }
   const p = PRESETS.find(x=>x.id===S.presetId);
-  if (p && JSON.stringify(cfgFromPreset(p)) !== JSON.stringify(S.cfg)){
+  if (p && JSON.stringify(cfgFor(p, goalById(S.goalId))) !== JSON.stringify(S.cfg)){
     S.presetId = null; renderPresets();
   }
 }
@@ -1422,6 +1625,8 @@ function show(id){
   ["home","setup","preview","run","done"].forEach(x => $("#"+x).classList.toggle("hide", x!==id));
   $("#setupbar").classList.toggle("hide", id!=="setup");
   if (id === "home") homeFigStart(); else homeFigStop();
+  // canvases measure 0 while the screen is display:none — paint once it's up
+  if (id === "setup") requestAnimationFrame(paintPhysiques);
 }
 
 function startWorkout(){
@@ -1670,8 +1875,62 @@ const MUS = {
   name:"", by:"", duration:0, art:"",
   sections:[], sounds:[], idx:0, curIdx:-1,
   widget:null, ready:false, err:"", loading:false, single:false, perStation:true,
-  pct:35, shuffle:true, align:true, order:[]
+  pct:35, shuffle:true, align:true, order:[], savedUrl:""
 };
+
+/* ---------------- saved mix ----------------
+   The link and the per-station options survive a reload. Nothing is
+   fetched on a cold load unless music was switched on when they left —
+   the "no network unless music is on" promise still holds. */
+const MUSKEY = "stations.music.v1";
+
+function musSave(){
+  try{
+    localStorage.setItem(MUSKEY, JSON.stringify({
+      on: MUS.on,
+      url: MUS.url || ($("#mixUrl") ? $("#mixUrl").value.trim() : ""),
+      pct: MUS.pct, shuffle: MUS.shuffle, perStation: MUS.perStation, align: MUS.align
+    }));
+  }catch(e){}   // private browsing, quota, disabled storage — never fatal
+}
+function musRestore(){
+  let d = null;
+  try{ d = JSON.parse(localStorage.getItem(MUSKEY) || "null"); }catch(e){}
+  if (!d || !d.url || !musProvider(d.url)) { musRender(); return; }
+
+  MUS.pct        = typeof d.pct === "number" ? d.pct : MUS.pct;
+  MUS.shuffle    = d.shuffle    !== false;
+  MUS.perStation = d.perStation !== false;
+  MUS.align      = d.align      !== false;
+  $("#mixUrl").value = d.url;
+  $("#mixPct").value = MUS.pct;
+  $("#mixShuffle").textContent = MUS.shuffle ? "On" : "Off";
+  $("#mixShuffle").classList.toggle("on", MUS.shuffle);
+  $("#mixPer").textContent = MUS.perStation ? "On" : "Off";
+  $("#mixPer").classList.toggle("on", MUS.perStation);
+  $("#mixAlign").textContent = MUS.align ? "On" : "Off";
+  $("#mixAlign").classList.toggle("on", MUS.align);
+  $("#mixForget").classList.remove("hide");
+
+  if (d.on){
+    MUS.on = true;
+    $("#mToggle").textContent = "On";
+    $("#mToggle").classList.add("on");
+    $("#mBody").classList.remove("hide");
+    $("#secMusic").open = true;
+    musUse(d.url);            // music was on when they left — fair to reload it
+  } else {
+    MUS.savedUrl = d.url;
+    musRender();
+  }
+}
+function musForget(){
+  try{ localStorage.removeItem(MUSKEY); }catch(e){}
+  MUS.savedUrl = "";
+  $("#mixUrl").value = "";
+  $("#mixForget").classList.add("hide");
+  musRender();
+}
 
 function musProvider(u){
   const s = String(u||"").trim();
@@ -1874,7 +2133,10 @@ function musRender(){
   const st = $("#mixStat");
   if (MUS.err){ st.textContent = MUS.err; st.className = "mstat bad"; }
   else if (MUS.loading){ st.textContent = "Loading…"; st.className = "mstat"; }
-  else if (!loaded){ st.textContent = "No mix or playlist chosen yet"; st.className = "mstat bad"; }
+  else if (!loaded){
+    st.textContent = MUS.savedUrl ? "Saved from last time — tap Load" : "No mix or playlist chosen yet";
+    st.className = "mstat bad";
+  }
   else { st.textContent = "Ready"; st.className = "mstat"; }
   const sum = $("#musicSum");
   if (sum) sum.textContent = !MUS.on ? "Off" : (loaded ? (MUS.name || "Ready") : "On — no mix yet");
@@ -1893,7 +2155,9 @@ async function musUse(raw){
       if (!key) throw new Error("That Mixcloud link is missing the mix name");
       await mcMeta(key); await mcBuild();
     }
-    MUS.src = prov; MUS.url = url;
+    MUS.src = prov; MUS.url = url; MUS.savedUrl = url;
+    $("#mixForget").classList.remove("hide");
+    musSave();
   }catch(e){ MUS.err = e.message || String(e); MUS.ready = false; }
   musShowPlayer(MUS.ready);
   MUS.loading = false; musRender();
@@ -1905,7 +2169,7 @@ $("#mToggle").onclick = () => {
   $("#mToggle").classList.toggle("on", MUS.on);
   $("#mBody").classList.toggle("hide", !MUS.on);
   musShowPlayer(MUS.on && MUS.ready);
-  musRender();
+  musRender(); musSave();
 };
 $("#mixLoad").onclick = () => musUse($("#mixUrl").value);
 $("#mixUrl").onkeydown = e => { if (e.key === "Enter"){ e.preventDefault(); musUse($("#mixUrl").value); } };
@@ -1913,26 +2177,29 @@ $("#mixPer").onclick = () => {
   MUS.perStation = !MUS.perStation;
   $("#mixPer").textContent = MUS.perStation ? "On" : "Off";
   $("#mixPer").classList.toggle("on", MUS.perStation);
-  musRender();
+  musRender(); musSave();
 };
 $("#mixShuffle").onclick = () => {
   MUS.shuffle = !MUS.shuffle;
   $("#mixShuffle").textContent = MUS.shuffle ? "On" : "Off";
   $("#mixShuffle").classList.toggle("on", MUS.shuffle);
+  musSave();
 };
 $("#mixAlign").onclick = () => {
   MUS.align = !MUS.align;
   $("#mixAlign").textContent = MUS.align ? "On" : "Off";
   $("#mixAlign").classList.toggle("on", MUS.align);
+  musSave();
 };
 $("#mixPct").onchange = () => {
   const v = Math.min(90, Math.max(0, Math.round(+$("#mixPct").value || 0)));
-  MUS.pct = v; $("#mixPct").value = v;
+  MUS.pct = v; $("#mixPct").value = v; musSave();
 };
 $("#tMusic").onclick = () => {
   const off = $("#tMusic").classList.toggle("off");
   if (off) musicPause(); else musicResume();
 };
+$("#mixForget").onclick = musForget;
 $("#mixShuffle").classList.add("on");
 $("#mixPer").classList.add("on");
 $("#mixAlign").classList.add("on");
@@ -1941,8 +2208,12 @@ musRender();
 /* =========================================================
    12. BOOT
    ========================================================= */
-S.cfg = cfgFromPreset(PRESETS[0]);
-renderPresets(); renderEquip(); renderConfig();
+S.cfg = cfgFor(PRESETS[0], goalById(S.goalId));
+S.goalShift = goalById(S.goalId).shift;
+renderPresets(); renderGoals(); renderEquip(); renderConfig();
+// #mixwrap lives after this script, so wait for the full document
+if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", musRestore);
+else musRestore();
 if (window.matchMedia("(min-width:721px)").matches) $("#secStructure").open = true;
 show("home");
 </script>
