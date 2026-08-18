@@ -1944,6 +1944,26 @@ function musProvider(u){
   if (/mixcloud\.com\//i.test(s))   return "mixcloud";
   return "";
 }
+/* People paste whatever the share sheet hands them. The mobile host
+   m.soundcloud.com resolves fine through oEmbed but the *widget* rejects it
+   outright with "not a valid SoundCloud URL", and share links arrive carrying
+   ?si= tracking params. Normalise before anything downstream sees the URL.
+   secret_token is deliberately preserved — stripping it kills private links. */
+function musNormalize(raw){
+  let s = String(raw||"").trim();
+  if (!s) return "";
+  s = s.replace(/^https?:\/\//i, "");
+  s = s.replace(/^(?:m|mobile|www)\.((?:soundcloud|mixcloud)\.com\/)/i, "$1");
+  s = "https://" + s;
+  try{
+    const u = new URL(s);
+    ["si","utm_source","utm_medium","utm_campaign","utm_content","utm_term","ref"]
+      .forEach(k => u.searchParams.delete(k));
+    u.hash = "";
+    s = u.toString().replace(/\?$/, "");
+  }catch(e){}
+  return s;
+}
 function mixKey(input){
   const m = String(input||"").match(/mixcloud\.com\/([^\/\s?#]+)\/([^\/\s?#]+)/i);
   return m ? "/" + m[1] + "/" + m[2] + "/" : "";
@@ -2148,7 +2168,7 @@ function musRender(){
   if (sum) sum.textContent = !MUS.on ? "Off" : (loaded ? (MUS.name || "Ready") : "On — no mix yet");
 }
 async function musUse(raw){
-  const url = String(raw||"").trim();
+  const url = musNormalize(raw);
   const prov = musProvider(url);
   if (!prov){ MUS.err = "Paste a SoundCloud or Mixcloud link"; musRender(); return; }
   MUS.err = ""; MUS.loading = true; MUS.ready = false; MUS.widget = null;
