@@ -1,2 +1,6 @@
 .DS_Store
 CLAUDE.md
+
+# source art — the mark ships as inline SVG inside index.html
+*.png
+_to_delete/

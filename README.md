@@ -41,8 +41,7 @@ active users**. Individuals can't apply at all. You'd need 250k users to get the
 access that would let you have more than five.
 
 Development mode still works for the owner plus a handful of allowlisted accounts,
-which is why the offline `stations.html` build keeps a Spotify option for personal
-use. It cannot become a product.
+but it cannot become a product. SoundCloud and Mixcloud need none of that.
 
 ## Known limits
 
