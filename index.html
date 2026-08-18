@@ -3,18 +3,18 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#0b0d10">
+<meta name="theme-color" content="#000000">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>STATIONS — Interval Training</title>
 <link rel="icon" href="data:,">
 <style>
 :root{
-  --bg:#0b0d10; --panel:#14181d; --panel2:#1b2027; --line:#262c34;
-  --txt:#e9eef4; --dim:#8b95a3; --dim2:#5f6875;
-  --lime:#b8f227; --cyan:#3ec8f0; --violet:#a98cff;
-  --amber:#ffb43c; --red:#ff5d47;
-  --radius:16px;
+  --bg:#000000; --panel:#0d0d0f; --panel2:#161619; --line:#26262b;
+  --txt:#ffffff; --dim:#9b9ba4; --dim2:#66666e;
+  --ink:#ffffff;
+  --lime:var(--ink); --cyan:#c2c2ca; --violet:#a2a2ab; --amber:#d9d9e0; --red:#ffffff;
+  --radius:16px; --mixh:172px;
   --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;
   --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
 }
@@ -26,116 +26,230 @@ body{
 }
 button{font-family:inherit;cursor:pointer;border:none;background:none;color:inherit}
 input,select{font-family:inherit}
-.wrap{max-width:860px;margin:0 auto;padding:20px 18px 64px}
+.wrap{max-width:820px;margin:0 auto;padding:20px 18px 64px}
 .hide{display:none !important}
+@media(max-width:620px){ .wrap{padding:14px 16px 40px} }
+
+/* ================= HOME ================= */
+#home{
+  position:fixed;inset:0;z-index:30;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;background:var(--bg);
+  padding:28px 20px calc(28px + env(safe-area-inset-bottom));text-align:center;
+}
+.hinner{width:100%;max-width:520px;display:flex;flex-direction:column;align-items:center}
+.hmark{
+  font-size:clamp(26px,7.4vw,40px);font-weight:800;letter-spacing:6px;line-height:1;
+  margin:0 0 4px;opacity:0;animation:hfade .7s ease forwards .05s
+}
+.htag{
+  font-size:10.5px;letter-spacing:3.4px;text-transform:uppercase;color:var(--dim2);
+  font-weight:800;opacity:0;animation:hfade .7s ease forwards .25s
+}
+.heq{
+  display:flex;align-items:center;justify-content:center;
+  gap:clamp(6px,2.6vw,16px);margin:clamp(26px,7vh,52px) 0 clamp(8px,2vh,14px);width:100%
+}
+.hslot{
+  width:clamp(66px,20vw,108px);height:clamp(84px,25vw,132px);
+  display:grid;place-items:center;flex:0 0 auto;
+  opacity:0;transform:scale(.55);animation:hpop .62s cubic-bezier(.2,1.5,.4,1) forwards
+}
+#homefig{width:100%;height:100%;display:block}
+.hemo{font-size:clamp(36px,11vw,58px);line-height:1;display:block;filter:grayscale(1) contrast(1.05)}
+.hop{
+  font-size:clamp(20px,6vw,32px);font-weight:300;color:var(--dim2);line-height:1;
+  opacity:0;transform:scale(.4);animation:hpop .5s cubic-bezier(.2,1.5,.4,1) forwards
+}
+.hslot.s1{animation-delay:.35s}
+.hop.o1{animation-delay:.95s}
+.hslot.s2{animation-delay:1.20s}
+.hop.o2{animation-delay:1.50s}
+.hslot.s3{animation-delay:1.75s}
+.hkeys{
+  display:flex;align-items:flex-start;justify-content:center;gap:clamp(6px,2.6vw,16px);
+  width:100%;margin-bottom:clamp(24px,6vh,44px)
+}
+.hkey{
+  width:clamp(66px,20vw,108px);flex:0 0 auto;font-size:9.5px;letter-spacing:1.6px;
+  text-transform:uppercase;font-weight:800;color:var(--dim2);line-height:1.4;
+  opacity:0;animation:hfade .6s ease forwards
+}
+.hkey.k1{animation-delay:.75s} .hkey.k2{animation-delay:1.55s} .hkey.k3{animation-delay:2.05s}
+.hgap{width:clamp(20px,6vw,32px);flex:0 0 auto}
+.hcta{width:100%;opacity:0;animation:hfade .7s ease forwards 2.25s}
+.hnote{
+  font-size:12px;color:var(--dim2);line-height:1.6;margin:16px 0 0;
+  opacity:0;animation:hfade .7s ease forwards 2.5s
+}
+@keyframes hfade{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+@keyframes hpop{from{opacity:0;transform:scale(.55)}to{opacity:1;transform:scale(1)}}
+@media(prefers-reduced-motion:reduce){
+  .hmark,.htag,.hslot,.hop,.hkey,.hcta,.hnote{animation-duration:.01s !important;animation-delay:0s !important}
+}
 
 /* ---------- header ---------- */
 .brand{display:flex;align-items:baseline;gap:10px;margin:8px 0 4px}
-.brand h1{font-size:30px;letter-spacing:-.5px;margin:0;font-weight:800}
-.brand h1 span{color:var(--lime)}
-.brand .tag{font-size:12px;color:var(--dim2);letter-spacing:2.5px;text-transform:uppercase;font-weight:700}
+.brand h1{font-size:clamp(24px,6.6vw,30px);letter-spacing:-.5px;margin:0;font-weight:800}
+.brand h1 span{color:var(--dim)}
+.brand .tag{font-size:11px;color:var(--dim2);letter-spacing:2.5px;text-transform:uppercase;font-weight:700}
 .lede{color:var(--dim);font-size:14px;line-height:1.55;margin:6px 0 22px;max-width:60ch}
+.topnav{display:flex;align-items:center;gap:10px;margin:0 0 6px}
+.backlink{
+  width:38px;height:38px;margin-left:-6px;border-radius:11px;background:var(--panel);
+  border:1px solid var(--line);display:grid;place-items:center;font-size:16px;color:var(--dim)
+}
+.backlink:hover{color:var(--txt)}
 
-/* ---------- cards ---------- */
-.section{margin-bottom:26px}
+/* ---------- sections ---------- */
+.section{margin-bottom:22px}
 .section > h2{
   font-size:11px;letter-spacing:2.2px;text-transform:uppercase;color:var(--dim2);
   font-weight:800;margin:0 0 10px
 }
+details.sec{
+  background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);
+  margin-bottom:12px;overflow:hidden
+}
+details.sec > summary{
+  list-style:none;cursor:pointer;display:flex;align-items:center;justify-content:space-between;
+  gap:12px;padding:16px;min-height:56px
+}
+details.sec > summary::-webkit-details-marker{display:none}
+details.sec > summary .sh{font-size:11px;letter-spacing:2.2px;text-transform:uppercase;font-weight:800}
+details.sec > summary .sv{font-size:12.5px;color:var(--dim2);font-family:var(--mono);margin-left:auto}
+details.sec > summary .sc{color:var(--dim2);font-size:12px;transition:transform .18s}
+details.sec[open] > summary .sc{transform:rotate(90deg)}
+details.sec[open] > summary{border-bottom:1px solid var(--line)}
+.secbody{padding:16px}
+
 .grid{display:grid;gap:10px}
 .grid.p2{grid-template-columns:repeat(2,1fr)}
 .grid.p4{grid-template-columns:repeat(4,1fr)}
-@media(max-width:560px){.grid.p4{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:620px){.grid.p2{grid-template-columns:1fr}.grid.p4{grid-template-columns:repeat(2,1fr)}}
 
 .preset{
   text-align:left;background:var(--panel);border:1.5px solid var(--line);
-  border-radius:var(--radius);padding:14px 15px;transition:.14s;position:relative
+  border-radius:var(--radius);padding:15px 16px;transition:.14s;position:relative;min-height:56px
 }
-.preset:hover{border-color:#3a434f}
-.preset.on{border-color:var(--lime);background:#171c14}
-.preset .nm{font-weight:750;font-size:15px;margin-bottom:3px}
-.preset .ds{font-size:12.5px;color:var(--dim);line-height:1.45}
+.preset:hover{border-color:#3a3a42}
+.preset.on{border-color:var(--ink);background:#141417}
+.preset .nm{font-weight:750;font-size:15.5px;margin-bottom:3px}
+.preset .ds{font-size:13px;color:var(--dim);line-height:1.45}
 .preset .mt{font-size:11px;color:var(--dim2);margin-top:8px;font-family:var(--mono);letter-spacing:.3px}
-.preset.on .nm{color:var(--lime)}
+.preset.on .nm{color:var(--ink)}
+.preset.on:after{
+  content:"✓";position:absolute;top:13px;right:14px;font-size:13px;font-weight:800;color:var(--ink)
+}
 
 .chip{
   background:var(--panel);border:1.5px solid var(--line);border-radius:12px;
-  padding:11px 12px;font-size:13px;font-weight:650;text-align:center;transition:.14s;color:var(--dim)
+  padding:13px 12px;min-height:48px;font-size:13.5px;font-weight:650;text-align:center;
+  transition:.14s;color:var(--dim)
 }
-.chip.on{border-color:var(--lime);color:var(--lime);background:#171c14}
+.chip.on{border-color:var(--ink);color:var(--ink);background:#141417}
 
 /* ---------- config ---------- */
-.cfg{background:var(--panel);border:1.5px solid var(--line);border-radius:var(--radius);padding:16px}
-.cfgrow{display:grid;grid-template-columns:1fr 1fr;gap:16px}
-@media(max-width:560px){.cfgrow{grid-template-columns:1fr}}
-.half h3{font-size:12px;letter-spacing:1.6px;text-transform:uppercase;color:var(--lime);margin:0 0 10px;font-weight:800}
-.half.b h3{color:var(--cyan)}
-.fld{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px}
-.fld label{font-size:13px;color:var(--dim)}
-.num{display:flex;align-items:center;gap:0;background:var(--panel2);border:1px solid var(--line);border-radius:10px;overflow:hidden}
-.num button{width:30px;height:32px;font-size:16px;font-weight:700;color:var(--dim);line-height:1}
-.num button:hover{color:var(--txt);background:#232a32}
-.num input{width:44px;height:32px;text-align:center;background:none;border:none;color:var(--txt);font-family:var(--mono);font-size:14px;font-weight:700;outline:none}
+.cfg{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:16px}
+.cfgrow{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+@media(max-width:620px){.cfgrow{grid-template-columns:1fr;gap:4px}}
+.half h3{font-size:11px;letter-spacing:1.8px;text-transform:uppercase;color:var(--ink);margin:0 0 6px;font-weight:800}
+.half.b h3{color:var(--dim)}
+@media(max-width:620px){.half.b h3{margin-top:18px}}
+.fld{
+  display:flex;align-items:center;justify-content:space-between;gap:10px;
+  min-height:52px;padding:5px 0;border-bottom:1px solid #1b1b1f
+}
+.fld:last-child{border-bottom:none}
+.fld label{font-size:14px;color:var(--dim)}
+.num{display:flex;align-items:center;gap:0;background:var(--panel2);border:1px solid var(--line);border-radius:11px;overflow:hidden}
+.num button{width:42px;height:42px;font-size:19px;font-weight:600;color:var(--dim);line-height:1}
+.num button:active{background:#26262b;color:var(--txt)}
+.num button:hover{color:var(--txt);background:#232328}
+.num input{width:50px;height:42px;text-align:center;background:none;border:none;color:var(--txt);font-family:var(--mono);font-size:15px;font-weight:700;outline:none}
 .num input::-webkit-outer-spin-button,.num input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
 .num input[type=number]{-moz-appearance:textfield}
-select.sel{background:var(--panel2);border:1px solid var(--line);color:var(--txt);border-radius:10px;padding:7px 9px;font-size:13px;outline:none}
+select.sel{
+  background:var(--panel2);border:1px solid var(--line);color:var(--txt);border-radius:11px;
+  padding:11px 10px;font-size:14px;outline:none;min-height:42px;max-width:56%
+}
 .divide{height:1px;background:var(--line);margin:16px 0}
-.globals{display:flex;flex-wrap:wrap;gap:14px}
-.globals .fld{margin:0}
+.globals{display:flex;flex-wrap:wrap;gap:0 20px}
+.globals .fld{flex:1 1 210px}
+@media(max-width:620px){.globals{display:block}.globals .fld{width:100%}}
 
 .total{
   display:flex;align-items:center;justify-content:space-between;gap:12px;
-  margin-top:16px;padding-top:14px;border-top:1px solid var(--line)
+  margin-top:14px;padding-top:14px;border-top:1px solid var(--line)
 }
-.total .lab{font-size:11px;letter-spacing:2px;text-transform:uppercase;color:var(--dim2);font-weight:800}
-.total .val{font-family:var(--mono);font-size:26px;font-weight:800;color:var(--lime);letter-spacing:-.5px}
-.total .sub{font-size:11.5px;color:var(--dim2);font-family:var(--mono)}
+.total .lab{font-size:10.5px;letter-spacing:2px;text-transform:uppercase;color:var(--dim2);font-weight:800}
+.total .val{font-family:var(--mono);font-size:26px;font-weight:800;color:var(--ink);letter-spacing:-.5px}
+.total .sub{font-size:11.5px;color:var(--dim2);font-family:var(--mono);line-height:1.6;margin-top:3px}
 
 /* ---------- buttons ---------- */
 .btn{
   display:inline-flex;align-items:center;justify-content:center;gap:8px;
   background:var(--panel2);border:1.5px solid var(--line);border-radius:12px;
-  padding:13px 18px;font-weight:700;font-size:14px;transition:.14s
+  padding:14px 18px;min-height:50px;font-weight:700;font-size:14.5px;transition:.14s
 }
-.btn:hover{border-color:#3a434f}
-.btn.primary{background:var(--lime);color:#0b0d10;border-color:var(--lime);font-weight:800}
-.btn.primary:hover{filter:brightness(1.08)}
-.btn.wide{width:100%;padding:16px;font-size:16px}
+.btn:hover{border-color:#3a3a42}
+.btn.primary{background:var(--ink);color:#000;border-color:var(--ink);font-weight:800}
+.btn.primary:hover{filter:brightness(.92)}
+.btn.wide{width:100%;padding:17px;font-size:16px;min-height:56px}
 .btnrow{display:flex;gap:10px;flex-wrap:wrap}
+@media(max-width:620px){.btnrow .btn{flex:1 1 100% !important}}
+
+/* ---------- sticky action bar ---------- */
+.stickybar{
+  position:fixed;left:0;right:0;bottom:0;z-index:40;display:flex;align-items:center;gap:14px;
+  padding:11px 16px calc(11px + env(safe-area-inset-bottom));
+  background:rgba(0,0,0,.9);-webkit-backdrop-filter:blur(16px);backdrop-filter:blur(16px);
+  border-top:1px solid var(--line)
+}
+.stickybar .sbl{min-width:0}
+.stickybar .sbk{font-size:9.5px;letter-spacing:2px;text-transform:uppercase;color:var(--dim2);font-weight:800}
+.stickybar .sbv{font-family:var(--mono);font-size:21px;font-weight:800;letter-spacing:-.5px;margin-top:1px}
+.stickybar .btn{flex:1;margin-left:auto;max-width:60%}
+#setup{padding-bottom:104px}
+body.mixon .stickybar{bottom:var(--mixh);padding-bottom:11px}
+@media(min-width:860px){
+  .stickybar{padding-left:calc((100vw - 820px)/2 + 18px);padding-right:calc((100vw - 820px)/2 + 18px)}
+  .stickybar .btn{max-width:240px}
+}
+body.mixon #setup{padding-bottom:calc(var(--mixh) + 104px)}
 
 /* ---------- preview list ---------- */
 .stlist{display:flex;flex-direction:column;gap:7px}
 .st{
   display:flex;align-items:center;gap:12px;background:var(--panel);
-  border:1px solid var(--line);border-radius:12px;padding:10px 12px
+  border:1px solid var(--line);border-radius:12px;padding:11px 12px
 }
 .st .idx{
-  width:26px;height:26px;flex:0 0 26px;border-radius:8px;background:var(--panel2);
+  width:28px;height:28px;flex:0 0 28px;border-radius:8px;background:var(--panel2);
   display:grid;place-items:center;font-family:var(--mono);font-size:12px;font-weight:800;color:var(--dim)
 }
 .st .body{flex:1;min-width:0}
-.st .nm{font-size:14px;font-weight:700;line-height:1.3}
-.st .cue{font-size:12px;color:var(--dim);line-height:1.4;margin-top:2px}
+.st .nm{font-size:14.5px;font-weight:700;line-height:1.3}
+.st .cue{font-size:12.5px;color:var(--dim);line-height:1.4;margin-top:2px}
 .st .tags{display:flex;gap:5px;margin-top:5px;flex-wrap:wrap}
-.tg{font-size:9.5px;letter-spacing:1.1px;text-transform:uppercase;font-weight:800;padding:2.5px 6px;border-radius:5px;background:#232a32;color:var(--dim)}
-.tg.push{color:#ff9d7a}.tg.pull{color:#8fd0ff}.tg.legs{color:var(--lime)}
-.tg.core{color:var(--violet)}.tg.power{color:var(--amber)}.tg.cardio{color:var(--red)}
-.st .swap{width:34px;height:34px;flex:0 0 34px;border-radius:9px;background:var(--panel2);display:grid;place-items:center;font-size:14px;color:var(--dim)}
-.st .swap:hover{color:var(--lime)}
-.halfhdr{display:flex;align-items:center;justify-content:space-between;margin:0 0 9px}
-.halfhdr .t{font-size:12px;letter-spacing:1.8px;text-transform:uppercase;font-weight:800;color:var(--lime)}
-.halfhdr.b .t{color:var(--cyan)}
-.halfhdr .m{font-size:11.5px;color:var(--dim2);font-family:var(--mono)}
+.tg{font-size:9.5px;letter-spacing:1.1px;text-transform:uppercase;font-weight:800;padding:3px 6px;border-radius:5px;background:#1d1d21;color:var(--dim)}
+.tg.push,.tg.pull,.tg.legs,.tg.core,.tg.power,.tg.cardio{color:var(--dim)}
+.tg.legs,.tg.power{color:#d2d2d9}
+.st .swap{width:44px;height:44px;flex:0 0 44px;border-radius:11px;background:var(--panel2);display:grid;place-items:center;font-size:15px;color:var(--dim)}
+.st .swap:hover{color:var(--ink)}
+.halfhdr{display:flex;align-items:center;justify-content:space-between;margin:0 0 9px;gap:10px}
+.halfhdr .t{font-size:11.5px;letter-spacing:1.8px;text-transform:uppercase;font-weight:800;color:var(--ink)}
+.halfhdr.b .t{color:var(--dim)}
+.halfhdr .m{font-size:11.5px;color:var(--dim2);font-family:var(--mono);text-align:right}
 
 /* ---------- run screen ---------- */
 #run{position:fixed;inset:0;display:flex;flex-direction:column;background:var(--bg);z-index:50}
 #run .topbar{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;gap:10px}
 #run .pill{font-size:11px;letter-spacing:1.6px;text-transform:uppercase;font-weight:800;color:var(--dim2)}
 #run .icons{display:flex;gap:6px}
-#run .icons button{width:38px;height:38px;border-radius:11px;background:#ffffff10;display:grid;place-items:center;font-size:15px}
+#run .icons button{width:40px;height:40px;border-radius:11px;background:#ffffff10;display:grid;place-items:center;font-size:15px;filter:grayscale(1)}
 #run .icons button.off{opacity:.35}
 .bar{height:4px;background:#ffffff14;position:relative}
-.bar i{position:absolute;inset:0 auto 0 0;background:var(--lime);transition:width .25s linear}
+.bar i{position:absolute;inset:0 auto 0 0;background:var(--ink);transition:width .25s linear}
 .stage{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:16px 22px;min-height:0}
 .phase{font-size:12px;letter-spacing:4px;text-transform:uppercase;font-weight:800;color:var(--dim);margin-bottom:10px}
 #run.hasfig .phase{margin-bottom:2px}
@@ -156,30 +270,35 @@ select.sel{background:var(--panel2);border:1px solid var(--line);color:var(--txt
 #run.hasfig .nextup{margin-top:14px}
 #run.hasfig .counters{margin-top:16px}
 @media(max-height:680px){.figwrap{height:26vh}#run.hasfig .counters{display:none}}
+
+/* ---------- music ---------- */
 textarea.mtx{width:100%;min-height:86px;background:var(--panel2);border:1px solid var(--line);
   border-radius:10px;color:var(--txt);padding:10px 11px;font-size:12.5px;font-family:var(--mono);
   line-height:1.5;outline:none;resize:vertical}
-textarea.mtx:focus{border-color:#3a434f}
-.mnote{font-size:11.5px;color:var(--dim2);line-height:1.55;margin:0 0 10px}
-.mstat{font-size:12px;font-weight:700;color:var(--lime);margin-top:11px;font-family:var(--mono)}
-.mstat.bad{color:var(--amber)}
-.minput{width:60px;height:32px;text-align:center;background:var(--panel2);border:1px solid var(--line);
-  border-radius:10px;color:var(--txt);font-family:var(--mono);font-size:14px;font-weight:700;outline:none}
+textarea.mtx:focus{border-color:#3a3a42}
+.mnote{font-size:12.5px;color:var(--dim2);line-height:1.6;margin:0 0 12px}
+.mstat{font-size:12.5px;font-weight:700;color:var(--ink);margin-top:12px;font-family:var(--mono)}
+.mstat.bad{color:var(--dim2)}
+.minput{width:64px;height:42px;text-align:center;background:var(--panel2);border:1px solid var(--line);
+  border-radius:11px;color:var(--txt);font-family:var(--mono);font-size:15px;font-weight:700;outline:none}
 #nowplaying{display:flex;align-items:center;gap:9px;justify-content:center;padding:0 18px 8px;
   font-size:12.5px;color:var(--dim);max-width:100%}
 #nowplaying span:last-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.npdot{width:7px;height:7px;flex:0 0 7px;border-radius:50%;background:#1db954}
+.npdot{width:7px;height:7px;flex:0 0 7px;border-radius:50%;background:#fff}
 .uri{display:block;background:var(--panel2);border:1px solid var(--line);border-radius:9px;
-  padding:9px 11px;font-family:var(--mono);font-size:11.5px;color:var(--lime);
+  padding:9px 11px;font-family:var(--mono);font-size:11.5px;color:var(--txt);
   word-break:break-all;margin:0 0 11px;user-select:all}
-.mtx2{flex:1;min-width:0;height:40px;background:var(--panel2);border:1px solid var(--line);border-radius:10px;
-  color:var(--txt);padding:0 11px;font-family:var(--mono);font-size:12.5px;outline:none}
-.mtx2:focus{border-color:#3a434f}
+.mrow{display:flex;gap:8px;align-items:center}
+@media(max-width:620px){.mrow{flex-wrap:wrap}.mrow .btn{width:100%}}
+.mtx2{flex:1;min-width:0;height:48px;background:var(--panel2);border:1px solid var(--line);border-radius:11px;
+  color:var(--txt);padding:0 12px;font-family:var(--mono);font-size:13px;outline:none}
+.mtx2:focus{border-color:#3a3a42}
 .linkbtn{font-size:12px;color:var(--dim2);text-decoration:underline;padding:4px 0;font-weight:600}
+.linkbtn:hover{color:var(--txt)}
 .mixname{font-size:14.5px;font-weight:750;line-height:1.3}
 .mixby{font-size:12.5px;color:var(--dim);margin-top:2px}
 .mixmeta{font-size:11.5px;color:var(--dim2);margin-top:5px;font-family:var(--mono)}
-#mixwrap{position:fixed;left:0;right:0;bottom:0;z-index:60;background:rgba(11,13,16,.94);
+#mixwrap{position:fixed;left:0;right:0;bottom:0;z-index:60;background:rgba(0,0,0,.94);
   border-top:1px solid var(--line);padding:7px 10px calc(7px + env(safe-area-inset-bottom))}
 #mixplayer iframe{display:block;border-radius:9px;background:#000}
 body.mixon .wrap{padding-bottom:190px}
@@ -194,43 +313,73 @@ body.mixon .foot{display:none}
   background:var(--panel2);border:1px solid var(--line);border-radius:9px;padding:10px;
   max-height:260px;overflow:auto;word-break:break-word;color:var(--dim)}
 .dl b{color:var(--txt);font-weight:700}
-.dl.bad, .dl.bad b{color:var(--amber)}
-.linkbtn:hover{color:var(--txt)}
-#run .icons button.off{opacity:.35}
+.dl.bad, .dl.bad b{color:var(--dim2)}
+
 .ctrls{display:flex;gap:10px;padding:14px 16px calc(20px + env(safe-area-inset-bottom));justify-content:center}
 .ctrls button{
-  flex:1;max-width:150px;background:#ffffff12;border-radius:13px;padding:15px 10px;
-  font-weight:750;font-size:14px
+  flex:1;max-width:150px;background:#ffffff12;border-radius:13px;padding:16px 10px;
+  font-weight:750;font-size:14px;min-height:54px
 }
-.ctrls button.go{background:var(--lime);color:#0b0d10;font-weight:850}
+.ctrls button.go{background:var(--ink);color:#000;font-weight:850}
 .foot{text-align:center;font-size:11px;color:var(--dim2);padding-bottom:calc(10px + env(safe-area-inset-bottom))}
 
-/* segment theming */
-#run.work   {background:#0d1508} #run.work   .clock{color:var(--lime)}   #run.work .bar i{background:var(--lime)}
-#run.rest   {background:#06141c} #run.rest   .clock{color:var(--cyan)}   #run.rest .bar i{background:var(--cyan)}
-#run.halftime{background:#120d1e} #run.halftime .clock{color:var(--violet)} #run.halftime .bar i{background:var(--violet)}
-#run.warmup {background:#1a1206} #run.warmup .clock{color:var(--amber)}  #run.warmup .bar i{background:var(--amber)}
-#run.cooldown{background:#1a1206} #run.cooldown .clock{color:var(--amber)} #run.cooldown .bar i{background:var(--amber)}
+/* segment theming — monochrome, differentiated by weight */
+#run.work    {background:#000}    #run.work    .clock{color:#fff}    #run.work    .bar i{background:#fff}
+#run.rest    {background:#0a0a0c} #run.rest    .clock{color:#7e7e87} #run.rest    .bar i{background:#7e7e87}
+#run.halftime{background:#0a0a0c} #run.halftime .clock{color:#9a9aa3} #run.halftime .bar i{background:#9a9aa3}
+#run.warmup  {background:#0a0a0c} #run.warmup  .clock{color:#c6c6ce} #run.warmup  .bar i{background:#c6c6ce}
+#run.cooldown{background:#0a0a0c} #run.cooldown .clock{color:#c6c6ce} #run.cooldown .bar i{background:#c6c6ce}
+#run.rest .phase,#run.halftime .phase{color:var(--dim2)}
 #run.paused .clock{opacity:.4}
 #run.last3 .clock{animation:pulse .5s ease-in-out infinite alternate}
 @keyframes pulse{from{transform:scale(1)}to{transform:scale(1.06)}}
 
 /* ---------- done ---------- */
 .done{text-align:center;padding:40px 0}
-.done .big{font-size:44px;font-weight:850;letter-spacing:-1px;color:var(--lime)}
+.done .big{font-size:clamp(32px,9vw,44px);font-weight:850;letter-spacing:-1px;color:var(--ink)}
 .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:26px 0}
 .stat{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 8px}
 .stat .v{font-family:var(--mono);font-size:22px;font-weight:800}
 .stat .k{font-size:10px;letter-spacing:1.6px;text-transform:uppercase;color:var(--dim2);font-weight:800;margin-top:4px}
-.note{font-size:12px;color:var(--dim2);line-height:1.6;margin-top:26px;border-top:1px solid var(--line);padding-top:16px}
+.note{font-size:12.5px;color:var(--dim2);line-height:1.6;margin-top:26px;border-top:1px solid var(--line);padding-top:16px}
 </style>
 </head>
 <body>
 
+<!-- ================= HOME ================= -->
+<div id="home">
+  <div class="hinner">
+    <div class="hmark">STATIONS</div>
+    <div class="htag">Interval training</div>
+
+    <div class="heq">
+      <div class="hslot s1"><canvas id="homefig"></canvas></div>
+      <div class="hop o1">+</div>
+      <div class="hslot s2"><span class="hemo">🏋️</span></div>
+      <div class="hop o2">+</div>
+      <div class="hslot s3"><span class="hemo">🎧</span></div>
+    </div>
+
+    <div class="hkeys">
+      <div class="hkey k1">You</div>
+      <div class="hgap"></div>
+      <div class="hkey k2">The work</div>
+      <div class="hgap"></div>
+      <div class="hkey k3">Your mix</div>
+    </div>
+
+    <div class="hcta"><button class="btn primary wide" id="homego">Build my session</button></div>
+    <p class="hnote">45 minutes · two halves · no account, no sign-in</p>
+  </div>
+</div>
+
 <!-- ================= SETUP ================= -->
-<div id="setup" class="wrap">
-  <div class="brand"><h1>STATION<span>S</span></h1><div class="tag">45 min · two halves</div></div>
-  <p class="lede">Two halves. Timed stations. Full body, aerobic and anaerobic. Pick a format, set your kit, and it builds a balanced session and runs the clock for you.</p>
+<div id="setup" class="wrap hide">
+  <div class="topnav">
+    <button class="backlink" id="tohome" title="Home">←</button>
+    <div class="brand" style="margin:0"><h1>Build your <span>session</span></h1></div>
+  </div>
+  <p class="lede">Pick a format, tell it what kit you have, and it builds a balanced full-body session and runs the clock for you.</p>
 
   <div class="section">
     <h2>Format</h2>
@@ -242,9 +391,9 @@ body.mixon .foot{display:none}
     <div class="grid p4" id="equip"></div>
   </div>
 
-  <div class="section">
-    <h2>Structure</h2>
-    <div class="cfg">
+  <details class="sec" id="secStructure">
+    <summary><span class="sh">Structure</span><span class="sv" id="structSum">45:00</span><span class="sc">›</span></summary>
+    <div class="secbody">
       <div class="cfgrow">
         <div class="half a">
           <h3>Half 1</h3>
@@ -286,45 +435,51 @@ body.mixon .foot{display:none}
         <div class="val" id="totaltime">45:00</div>
       </div>
     </div>
-  </div>
+  </details>
 
-  <div class="section">
-    <h2>Music</h2>
-    <div class="cfg">
-      <div class="fld" style="margin-bottom:14px">
-        <label style="font-size:14px;color:var(--txt);font-weight:650">Play a mix while you train</label>
-        <button class="chip" id="mToggle" style="min-width:82px">Off</button>
+  <details class="sec" id="secMusic">
+    <summary><span class="sh">Music</span><span class="sv" id="musicSum">Off</span><span class="sc">›</span></summary>
+    <div class="secbody">
+      <div class="fld" style="border-bottom:none">
+        <label style="font-size:14.5px;color:var(--txt);font-weight:650">Play a mix while you train</label>
+        <button class="chip" id="mToggle" style="min-width:88px;min-height:42px;padding:10px 12px">Off</button>
       </div>
       <div id="mBody" class="hide">
-        <p class="mnote">Paste a <b>SoundCloud</b> or <b>Mixcloud</b> link. No account, no sign-in — yours or anyone else's.</p>
-        <div class="fld" style="gap:8px">
-          <input class="mtx2" id="mixUrl" spellcheck="false" autocomplete="off"
+        <p class="mnote" style="margin-top:10px">Paste a <b>SoundCloud</b> or <b>Mixcloud</b> link. No account, no sign-in — yours or anyone else’s.</p>
+        <div class="mrow">
+          <input class="mtx2" id="mixUrl" spellcheck="false" autocomplete="off" inputmode="url"
                  placeholder="soundcloud.com/… or mixcloud.com/…">
-          <button class="btn" id="mixLoad" style="padding:10px 15px">Load</button>
+          <button class="btn" id="mixLoad" style="padding:12px 18px">Load</button>
         </div>
 
-        <div id="mixInfo" class="hide" style="margin-top:13px">
+        <div id="mixInfo" class="hide" style="margin-top:14px">
           <div class="mixname" id="mixName"></div>
           <div class="mixby" id="mixBy"></div>
           <div class="mixmeta" id="mixMeta"></div>
 
-          <div class="globals" id="mixScRow" style="margin-top:12px">
-            <div class="fld hide" id="mixPerFld"><label>New track each station</label><button class="chip" id="mixPer" style="min-width:62px">On</button></div>
-            <div class="fld" id="mixPctFld"><label>Start each track</label><input class="minput" id="mixPct" type="number" value="35" min="0" max="90" step="5"><span style="color:var(--dim2);font-size:12px;margin-left:-4px">% in</span></div>
-            <div class="fld" id="mixShufFld"><label>Shuffle</label><button class="chip" id="mixShuffle" style="min-width:62px">On</button></div>
+          <div class="globals" id="mixScRow" style="margin-top:6px">
+            <div class="fld hide" id="mixPerFld"><label>New track each station</label><button class="chip" id="mixPer" style="min-width:70px;min-height:42px;padding:10px 12px">On</button></div>
+            <div class="fld" id="mixPctFld"><label>Start each track</label><span style="display:flex;align-items:center;gap:6px"><input class="minput" id="mixPct" type="number" value="35" min="0" max="90" step="5"><span style="color:var(--dim2);font-size:12px">% in</span></span></div>
+            <div class="fld" id="mixShufFld"><label>Shuffle</label><button class="chip" id="mixShuffle" style="min-width:70px;min-height:42px;padding:10px 12px">On</button></div>
           </div>
-          <div class="globals" id="mixMcRow" style="margin-top:12px">
-            <div class="fld"><label>Start each half on a track change</label><button class="chip" id="mixAlign" style="min-width:62px">On</button></div>
+          <div class="globals" id="mixMcRow" style="margin-top:6px">
+            <div class="fld"><label>Start each half on a track change</label><button class="chip" id="mixAlign" style="min-width:70px;min-height:42px;padding:10px 12px">On</button></div>
           </div>
         </div>
 
         <div class="mstat bad" id="mixStat">No mix or playlist chosen yet</div>
-        <p class="mnote" style="margin-top:14px"><b>SoundCloud playlist</b> — a different track at every station, dropped into partway so you skip the intro. <b>Mixcloud mix</b> — one continuous DJ set, and if the uploader added a tracklist you'll see what's playing. Needs internet; everything else works offline.</p>
+        <p class="mnote" style="margin-top:14px"><b>SoundCloud playlist</b> — a different track at every station, dropped into partway so you skip the intro. <b>Mixcloud mix</b> — one continuous DJ set, and if the uploader added a tracklist you’ll see what’s playing. Needs internet; everything else works offline.</p>
       </div>
     </div>
-  </div>
+  </details>
+</div>
 
-  <button class="btn primary wide" id="build">Build my session →</button>
+<div class="stickybar hide" id="setupbar">
+  <div class="sbl">
+    <div class="sbk">Total</div>
+    <div class="sbv" id="barTotal">45:00</div>
+  </div>
+  <button class="btn primary" id="build">Build →</button>
 </div>
 
 <!-- ================= PREVIEW ================= -->
@@ -1196,6 +1351,8 @@ function markCustom(){
 function updateTotal(){
   const t = totalSeconds(S.cfg);
   $("#totaltime").textContent = mmss(t);
+  $("#barTotal").textContent = mmss(t);
+  $("#structSum").textContent = mmss(t);
   const [a,b] = S.cfg.halves;
   $("#breakdown").textContent =
     mmss(S.cfg.warmup)+" warm-up · "+mmss(halfSeconds(a))+" half 1 · "+
@@ -1261,7 +1418,11 @@ document.addEventListener("visibilitychange", () => {
 /* =========================================================
    10. RUN LOOP
    ========================================================= */
-function show(id){ ["setup","preview","run","done"].forEach(x => $("#"+x).classList.toggle("hide", x!==id)); }
+function show(id){
+  ["home","setup","preview","run","done"].forEach(x => $("#"+x).classList.toggle("hide", x!==id));
+  $("#setupbar").classList.toggle("hide", id!=="setup");
+  if (id === "home") homeFigStart(); else homeFigStop();
+}
 
 function startWorkout(){
   S.segs = buildTimeline();
@@ -1393,7 +1554,8 @@ document.addEventListener("keydown", e => {
 /* =========================================================
    13. EXERCISE DEMO FIGURE
    ========================================================= */
-const FIGTHEME = { near:"#eef3f8", far:"#4a545f", ground:"#2c343d", prop:"#b8f227", propDim:"#71941a" };
+const FIGTHEME = { near:"#ffffff", far:"#4b4b53", ground:"#2b2b31", prop:"#ffffff", propDim:"#787880" };
+const HOMETHEME = { near:"#ffffff", far:"#5c5c66", ground:"transparent", prop:"#ffffff", propDim:"#8a8a92" };
 const F = { on:true, def:null, t:0, last:0, raf:null, cv:null, ctx:null, w:0, h:0 };
 
 function figResize(){
@@ -1433,6 +1595,58 @@ function figStop(){
 }
 window.addEventListener("resize", figResize);
 window.addEventListener("orientationchange", () => setTimeout(figResize, 250));
+
+/* ---- home screen figure: the "you" half of the equation ---- */
+const HOMESEQ = ["jack", "runHigh", "jumpSquat", "star"];
+const HF = { cv:null, ctx:null, w:0, h:0, t:0, hold:0, i:0, last:0, raf:null, defs:[] };
+
+/* BASE entries are raw; normalise one the same way animFor does. */
+function homeDef(i){
+  if (HF.defs[i] !== undefined) return HF.defs[i];
+  const b = BASE[HOMESEQ[i]];
+  HF.defs[i] = b ? { view:b.view||"side", dur:b.dur||2200, prop:b.prop,
+                     anchor:b.anchor, anchorY:b.anchorY,
+                     frames:b.frames.map(f=>f.slice()) } : null;
+  return HF.defs[i];
+}
+
+function homeFigResize(){
+  const c = HF.cv; if (!c) return;
+  const r = c.getBoundingClientRect();
+  if (!r.width || !r.height) return;
+  const dpr = Math.min(window.devicePixelRatio || 1, 2.5);
+  HF.w = r.width; HF.h = r.height;
+  c.width = Math.round(HF.w*dpr); c.height = Math.round(HF.h*dpr);
+  HF.ctx = c.getContext("2d"); HF.ctx.setTransform(dpr,0,0,dpr,0,0);
+}
+function homeFigFrame(now){
+  HF.raf = requestAnimationFrame(homeFigFrame);
+  if (!HF.ctx || !HF.w) { homeFigResize(); return; }
+  const dt = HF.last ? Math.min(120, now - HF.last) : 0;
+  HF.last = now;
+  HF.t += dt; HF.hold += dt;
+  let def = homeDef(HF.i);
+  if (!def) return;
+  // switch move on a clean cycle boundary, roughly every 4.5s
+  if (HF.hold > 4500 && (HF.t % def.dur) < 45){
+    HF.i = (HF.i + 1) % HOMESEQ.length; HF.t = 0; HF.hold = 0;
+    def = homeDef(HF.i) || def;
+  }
+  drawFigure(HF.ctx, HF.w, HF.h, def, (HF.t % def.dur) / def.dur, HOMETHEME);
+}
+function homeFigStart(){
+  if (!HF.cv) HF.cv = $("#homefig");
+  homeFigResize();
+  if (!HF.raf){ HF.last = 0; HF.raf = requestAnimationFrame(homeFigFrame); }
+}
+function homeFigStop(){
+  if (HF.raf){ cancelAnimationFrame(HF.raf); HF.raf = null; }
+}
+window.addEventListener("resize", homeFigResize);
+window.addEventListener("orientationchange", () => setTimeout(homeFigResize, 250));
+
+$("#homego").onclick = () => show("setup");
+$("#tohome").onclick = () => show("home");
 
 $("#tFig").onclick = () => {
   F.on = !F.on;
@@ -1662,6 +1876,8 @@ function musRender(){
   else if (MUS.loading){ st.textContent = "Loading…"; st.className = "mstat"; }
   else if (!loaded){ st.textContent = "No mix or playlist chosen yet"; st.className = "mstat bad"; }
   else { st.textContent = "Ready"; st.className = "mstat"; }
+  const sum = $("#musicSum");
+  if (sum) sum.textContent = !MUS.on ? "Off" : (loaded ? (MUS.name || "Ready") : "On — no mix yet");
 }
 async function musUse(raw){
   const url = String(raw||"").trim();
@@ -1689,6 +1905,7 @@ $("#mToggle").onclick = () => {
   $("#mToggle").classList.toggle("on", MUS.on);
   $("#mBody").classList.toggle("hide", !MUS.on);
   musShowPlayer(MUS.on && MUS.ready);
+  musRender();
 };
 $("#mixLoad").onclick = () => musUse($("#mixUrl").value);
 $("#mixUrl").onkeydown = e => { if (e.key === "Enter"){ e.preventDefault(); musUse($("#mixUrl").value); } };
@@ -1726,6 +1943,8 @@ musRender();
    ========================================================= */
 S.cfg = cfgFromPreset(PRESETS[0]);
 renderPresets(); renderEquip(); renderConfig();
+if (window.matchMedia("(min-width:721px)").matches) $("#secStructure").open = true;
+show("home");
 </script>
 <div id="mixwrap" class="hide"><div id="mixplayer"></div></div>
 </body>
