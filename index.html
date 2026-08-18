@@ -176,6 +176,25 @@ textarea.mtx:focus{border-color:#3a434f}
   color:var(--txt);padding:0 11px;font-family:var(--mono);font-size:12.5px;outline:none}
 .mtx2:focus{border-color:#3a434f}
 .linkbtn{font-size:12px;color:var(--dim2);text-decoration:underline;padding:4px 0;font-weight:600}
+.mixname{font-size:14.5px;font-weight:750;line-height:1.3}
+.mixby{font-size:12.5px;color:var(--dim);margin-top:2px}
+.mixmeta{font-size:11.5px;color:var(--dim2);margin-top:5px;font-family:var(--mono)}
+#mixwrap{position:fixed;left:0;right:0;bottom:0;z-index:60;background:rgba(11,13,16,.94);
+  border-top:1px solid var(--line);padding:7px 10px calc(7px + env(safe-area-inset-bottom))}
+#mixplayer iframe{display:block;border-radius:9px;background:#000}
+body.mixon .wrap{padding-bottom:190px}
+body.mixon .ctrls{padding-bottom:calc(150px + env(safe-area-inset-bottom))}
+body.mixon .foot{display:none}
+.diag{margin-top:12px;border-top:1px solid var(--line);padding-top:11px}
+.diag summary{font-size:11.5px;color:var(--dim2);cursor:pointer;font-weight:650;list-style:none}
+.diag summary::-webkit-details-marker{display:none}
+.diag summary:before{content:"▸ ";color:var(--dim2)}
+.diag[open] summary:before{content:"▾ "}
+.diagbody{margin-top:9px;font-family:var(--mono);font-size:10.5px;line-height:1.65;
+  background:var(--panel2);border:1px solid var(--line);border-radius:9px;padding:10px;
+  max-height:260px;overflow:auto;word-break:break-word;color:var(--dim)}
+.dl b{color:var(--txt);font-weight:700}
+.dl.bad, .dl.bad b{color:var(--amber)}
 .linkbtn:hover{color:var(--txt)}
 #run .icons button.off{opacity:.35}
 .ctrls{display:flex;gap:10px;padding:14px 16px calc(20px + env(safe-area-inset-bottom));justify-content:center}
@@ -270,46 +289,37 @@ textarea.mtx:focus{border-color:#3a434f}
   </div>
 
   <div class="section">
-    <h2>Music — Spotify</h2>
+    <h2>Music</h2>
     <div class="cfg">
       <div class="fld" style="margin-bottom:14px">
-        <label style="font-size:14px;color:var(--txt);font-weight:650">New song at every station</label>
+        <label style="font-size:14px;color:var(--txt);font-weight:650">Play a mix while you train</label>
         <button class="chip" id="mToggle" style="min-width:82px">Off</button>
       </div>
       <div id="mBody" class="hide">
+        <p class="mnote">Paste a <b>SoundCloud</b> or <b>Mixcloud</b> link. No account, no sign-in — yours or anyone else's.</p>
+        <div class="fld" style="gap:8px">
+          <input class="mtx2" id="mixUrl" spellcheck="false" autocomplete="off"
+                 placeholder="soundcloud.com/… or mixcloud.com/…">
+          <button class="btn" id="mixLoad" style="padding:10px 15px">Load</button>
+        </div>
 
-        <div id="mSetup">
-          <p class="mnote">One-time setup. Create a free app at <b>developer.spotify.com/dashboard</b> and add this <b>exact</b> Redirect URI to it:</p>
-          <div class="uri" id="mRedirect"></div>
-          <p class="mnote">Then paste the app's Client ID below. It stays in this browser and is never sent anywhere but Spotify.</p>
-          <div class="fld" style="gap:8px">
-            <input class="mtx2" id="mClientId" placeholder="Client ID — 32 characters" spellcheck="false" autocomplete="off">
-            <button class="btn" id="mSaveId" style="padding:10px 15px">Save</button>
+        <div id="mixInfo" class="hide" style="margin-top:13px">
+          <div class="mixname" id="mixName"></div>
+          <div class="mixby" id="mixBy"></div>
+          <div class="mixmeta" id="mixMeta"></div>
+
+          <div class="globals" id="mixScRow" style="margin-top:12px">
+            <div class="fld hide" id="mixPerFld"><label>New track each station</label><button class="chip" id="mixPer" style="min-width:62px">On</button></div>
+            <div class="fld" id="mixPctFld"><label>Start each track</label><input class="minput" id="mixPct" type="number" value="35" min="0" max="90" step="5"><span style="color:var(--dim2);font-size:12px;margin-left:-4px">% in</span></div>
+            <div class="fld" id="mixShufFld"><label>Shuffle</label><button class="chip" id="mixShuffle" style="min-width:62px">On</button></div>
+          </div>
+          <div class="globals" id="mixMcRow" style="margin-top:12px">
+            <div class="fld"><label>Start each half on a track change</label><button class="chip" id="mixAlign" style="min-width:62px">On</button></div>
           </div>
         </div>
 
-        <div id="mConnect" class="hide">
-          <button class="btn primary wide" id="mConnectBtn">Connect Spotify</button>
-          <p class="mnote" style="margin-top:11px">Redirect URI this app will use: <span class="uri" id="mRedirect2" style="margin-top:5px"></span></p>
-          <button class="linkbtn" id="mForget">Use a different Client ID</button>
-        </div>
-
-        <div id="mAccount" class="hide">
-          <div class="fld"><label>Signed in as <b id="mWho" style="color:var(--txt)"></b></label><button class="linkbtn" id="mSignOut">Sign out</button></div>
-          <div class="fld"><label>Playlist</label><select class="sel" id="mPlaylist" style="max-width:56%"></select></div>
-          <div class="fld"><label>Play on</label><select class="sel" id="mDevice" style="max-width:56%"></select></div>
-          <div class="btnrow" style="margin:2px 0 12px">
-            <button class="btn" id="mRefreshDev" style="padding:9px 13px;font-size:12.5px">Refresh devices</button>
-            <button class="btn" id="mBrowser" style="padding:9px 13px;font-size:12.5px">Use this browser</button>
-          </div>
-          <div class="globals">
-            <div class="fld"><label>Start each song</label><input class="minput" id="mPct" type="number" value="35" min="0" max="90" step="5"><span style="color:var(--dim2);font-size:12px;margin-left:-4px">% in</span></div>
-            <div class="fld"><label>Shuffle</label><button class="chip" id="mShuffle" style="min-width:62px">On</button></div>
-          </div>
-        </div>
-
-        <div class="mstat bad" id="mStat">Not connected</div>
-        <p class="mnote" style="margin-top:14px">Playback control requires Spotify Premium. Open Spotify on whatever you want to hear it through — phone, laptop, a speaker — press play once so it registers as a device, then pick it above.</p>
+        <div class="mstat bad" id="mixStat">No mix or playlist chosen yet</div>
+        <p class="mnote" style="margin-top:14px"><b>SoundCloud playlist</b> — a different track at every station, dropped into partway so you skip the intro. <b>Mixcloud mix</b> — one continuous DJ set, and if the uploader added a tracklist you'll see what's playing. Needs internet; everything else works offline.</p>
       </div>
     </div>
   </div>
@@ -1280,7 +1290,10 @@ function enterSeg(first){
       : nm;
   const nx = nextWork(S.idx);
   if (s.type === "work") figStart(s.label); else figStop();
-  if (s.type === "work" && !first && !$("#tMusic").classList.contains("off")) musicPlay(false);
+  if (!$("#tMusic").classList.contains("off")){
+    if (s.type === "work" && !first) musicStation();
+    else if (s.type === "halftime") musicHalfBreak();
+  }
   if (s.type === "work"){
     $("#exname").textContent = s.label;
     $("#excue").textContent  = s.cue;
@@ -1430,289 +1443,283 @@ $("#tFig").onclick = () => {
 
 
 /* =========================================================
-   14. SPOTIFY  (OAuth PKCE + Web API playback)
-   Hosted build: signs in, reads a real playlist, and drives
-   playback on any of your Spotify devices. Premium required
-   for playback control; playlist reading works on any account.
+   14. MUSIC — SOUNDCLOUD + MIXCLOUD
+   Neither needs an API key, an account, or an approval
+   process, and the listener signs into nothing.
+     SoundCloud playlist -> a different track at every station
+                            (getSounds / skip / seekTo)
+     Mixcloud mix        -> one continuous DJ set, with the
+                            uploader's tracklist for now-playing
    ========================================================= */
-const SCOPES = [
-  "playlist-read-private","playlist-read-collaborative",
-  "user-read-playback-state","user-modify-playback-state",
-  "streaming","user-read-email","user-read-private"
-].join(" ");
-const LS_ID = "stations.clientId", LS_RT = "stations.refresh", SS_V = "stations.verifier", LS_PL = "stations.playlist";
-
-const MUSIC = {
-  on:false, clientId:"", token:"", expires:0, refresh:"", me:null,
-  playlists:[], playlistId:"", tracks:[], order:[], idx:0,
-  deviceId:"", devices:[], pct:35, shuffle:true, browserDevice:null,
-  sdkLoaded:false, busy:false, err:""
+const MUS = {
+  on:false, src:"", url:"", key:"",
+  name:"", by:"", duration:0, art:"",
+  sections:[], sounds:[], idx:0, curIdx:-1,
+  widget:null, ready:false, err:"", loading:false, single:false, perStation:true,
+  pct:35, shuffle:true, align:true, order:[]
 };
 
-/* ---------- PKCE helpers ---------- */
-function randStr(n){
-  const a = new Uint8Array(n); crypto.getRandomValues(a);
-  return Array.from(a, b => "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~"[b % 66]).join("");
+function musProvider(u){
+  const s = String(u||"").trim();
+  if (/soundcloud\.com\//i.test(s)) return "soundcloud";
+  if (/mixcloud\.com\//i.test(s))   return "mixcloud";
+  return "";
 }
-function b64url(buf){
-  return btoa(String.fromCharCode(...new Uint8Array(buf)))
-    .replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
+function mixKey(input){
+  const m = String(input||"").match(/mixcloud\.com\/([^\/\s?#]+)\/([^\/\s?#]+)/i);
+  return m ? "/" + m[1] + "/" + m[2] + "/" : "";
 }
-async function challenge(v){
-  return b64url(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(v)));
-}
-function redirectUri(){ return location.origin + location.pathname; }
-
-/* ---------- auth ---------- */
-async function spLogin(){
-  if (!MUSIC.clientId){ musicErr("Add your Spotify Client ID first."); return; }
-  const v = randStr(64);
-  sessionStorage.setItem(SS_V, v);
-  localStorage.setItem(LS_ID, MUSIC.clientId);
-  const p = new URLSearchParams({
-    client_id: MUSIC.clientId, response_type:"code", redirect_uri: redirectUri(),
-    scope: SCOPES, code_challenge_method:"S256", code_challenge: await challenge(v)
-  });
-  location.href = "https://accounts.spotify.com/authorize?" + p;
-}
-async function spExchange(code){
-  const v = sessionStorage.getItem(SS_V) || "";
-  const r = await fetch("https://accounts.spotify.com/api/token", {
-    method:"POST", headers:{"Content-Type":"application/x-www-form-urlencoded"},
-    body: new URLSearchParams({ client_id: MUSIC.clientId, grant_type:"authorization_code",
-      code, redirect_uri: redirectUri(), code_verifier: v })
-  });
-  if (!r.ok) throw new Error("Token exchange failed (" + r.status + "). Check that the redirect URI in your Spotify app exactly matches " + redirectUri());
-  const d = await r.json();
-  MUSIC.token = d.access_token; MUSIC.expires = Date.now() + (d.expires_in-60)*1000;
-  if (d.refresh_token){ MUSIC.refresh = d.refresh_token; localStorage.setItem(LS_RT, d.refresh_token); }
-  sessionStorage.removeItem(SS_V);
-}
-async function spRefresh(){
-  if (!MUSIC.refresh) return false;
-  const r = await fetch("https://accounts.spotify.com/api/token", {
-    method:"POST", headers:{"Content-Type":"application/x-www-form-urlencoded"},
-    body: new URLSearchParams({ client_id: MUSIC.clientId, grant_type:"refresh_token", refresh_token: MUSIC.refresh })
-  });
-  if (!r.ok){ MUSIC.refresh = ""; localStorage.removeItem(LS_RT); return false; }
-  const d = await r.json();
-  MUSIC.token = d.access_token; MUSIC.expires = Date.now() + (d.expires_in-60)*1000;
-  if (d.refresh_token){ MUSIC.refresh = d.refresh_token; localStorage.setItem(LS_RT, d.refresh_token); }
-  return true;
-}
-async function api(path, opts){
-  if (!MUSIC.token || Date.now() > MUSIC.expires){ if (!await spRefresh()) throw new Error("Not signed in"); }
-  const o = Object.assign({headers:{}}, opts||{});
-  o.headers = Object.assign({ Authorization: "Bearer " + MUSIC.token }, o.headers);
-  if (o.body && typeof o.body !== "string"){ o.body = JSON.stringify(o.body); o.headers["Content-Type"] = "application/json"; }
-  let r = await fetch("https://api.spotify.com/v1" + path, o);
-  if (r.status === 401 && await spRefresh()){
-    o.headers.Authorization = "Bearer " + MUSIC.token;
-    r = await fetch("https://api.spotify.com/v1" + path, o);
-  }
-  if (r.status === 204) return null;
-  if (!r.ok){
-    let msg = r.status + "";
-    try { const j = await r.json(); if (j.error && j.error.message) msg = j.error.message; } catch(e){}
-    if (r.status === 403) msg += " — this usually means the account isn't Premium";
-    if (r.status === 404) msg = "No active Spotify device. Open Spotify somewhere and press play once, then hit Refresh.";
-    throw new Error(msg);
-  }
-  return r.json();
-}
-
-/* ---------- data ---------- */
-async function spLoadMe(){ MUSIC.me = await api("/me"); }
-async function spLoadPlaylists(){
-  const out = []; let url = "/me/playlists?limit=50";
-  while (url && out.length < 200){
-    const d = await api(url);
-    out.push(...d.items.filter(Boolean).map(p => ({ id:p.id, name:p.name, n:p.tracks ? p.tracks.total : 0 })));
-    url = d.next ? d.next.replace("https://api.spotify.com/v1","") : null;
-  }
-  MUSIC.playlists = out;
-}
-async function spLoadTracks(id){
-  const out = []; let url = "/playlists/" + id + "/tracks?limit=100&fields=next,items(track(uri,name,duration_ms,is_playable,type))";
-  while (url){
-    const d = await api(url);
-    for (const it of d.items){
-      const t = it && it.track;
-      if (!t || t.type !== "track" || !t.uri || t.uri.indexOf("spotify:track:") !== 0) continue;
-      if (t.is_playable === false) continue;
-      out.push({ uri:t.uri, name:t.name, ms:t.duration_ms || 0 });
-    }
-    url = d.next ? d.next.replace("https://api.spotify.com/v1","") : null;
-  }
-  MUSIC.tracks = out; MUSIC.playlistId = id;
-  localStorage.setItem(LS_PL, id);
-}
-async function spDevices(){
-  const d = await api("/me/player/devices");
-  MUSIC.devices = (d && d.devices) || [];
-  if (!MUSIC.deviceId){
-    const active = MUSIC.devices.find(x => x.is_active) || MUSIC.devices[0];
-    if (active) MUSIC.deviceId = active.id;
-  }
-}
-
-/* ---------- browser as a playback device ---------- */
-function spLoadSdk(){
+function musSecs(v){ v = Math.max(0, Math.round(v||0));
+  const m = Math.floor(v/60); return m + ":" + String(v%60).padStart(2,"0"); }
+function loadScriptOnce(src, flag){
   return new Promise((res, rej) => {
-    if (MUSIC.sdkLoaded) return res();
-    window.onSpotifyWebPlaybackSDKReady = () => {
-      const player = new Spotify.Player({
-        name: "STATIONS",
-        getOAuthToken: cb => { if (Date.now() > MUSIC.expires) spRefresh().then(()=>cb(MUSIC.token)); else cb(MUSIC.token); },
-        volume: 0.8
-      });
-      player.addListener("ready", ({device_id}) => {
-        MUSIC.browserDevice = device_id; MUSIC.deviceId = device_id;
-        MUSIC.sdkLoaded = true; musicRender(); res();
-      });
-      player.addListener("initialization_error", e => rej(new Error(e.message)));
-      player.addListener("authentication_error", e => rej(new Error(e.message)));
-      player.addListener("account_error", () => rej(new Error("Web playback in the browser requires Spotify Premium")));
-      player.connect();
-    };
+    if (window[flag]) return res();
     const s = document.createElement("script");
-    s.src = "https://sdk.scdn.co/spotify-player.js"; s.async = true;
-    s.onerror = () => rej(new Error("Couldn't load the Spotify player"));
+    s.src = src; s.async = true;
+    s.onload = () => res();
+    s.onerror = () => rej(new Error("Couldn't reach the music service — check your connection"));
     document.head.appendChild(s);
   });
 }
 
-/* ---------- playback ---------- */
-function musicOrder(){
-  const a = MUSIC.tracks.slice();
-  if (MUSIC.shuffle) for (let i=a.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); const t=a[i]; a[i]=a[j]; a[j]=t; }
-  MUSIC.order = a; MUSIC.idx = 0;
+/* ---------------- SoundCloud ---------------- */
+async function scBuild(url){
+  await loadScriptOnce("https://w.soundcloud.com/player/api.js", "SC");
+  const host = $("#mixplayer"); host.innerHTML = "";
+  const f = document.createElement("iframe");
+  f.width = "100%"; f.height = "120"; f.frameBorder = "0";
+  f.allow = "autoplay";
+  f.src = "https://w.soundcloud.com/player/?url=" + encodeURIComponent(url) +
+          "&visual=false&show_teaser=false&hide_related=true&show_comments=false&sharing=false&buying=false&download=false";
+  host.appendChild(f);
+  const w = SC.Widget(f);
+  await new Promise((res, rej) => {
+    let done = false;
+    w.bind(SC.Widget.Events.READY, () => { done = true; res(); });
+    w.bind(SC.Widget.Events.ERROR, () => { if (!done) rej(new Error("SoundCloud couldn't load that link")); });
+    setTimeout(() => { if (!done) rej(new Error("SoundCloud player timed out")); }, 15000);
+  });
+  MUS.widget = w; MUS.ready = true;
+  MUS.sounds = await new Promise(res => w.getSounds(list => res((list||[]).filter(Boolean))));
+  /* One sound = a continuous DJ mix. Many sounds = a playlist we can hop around.
+     Treating a mix like a playlist made it start mid-track and jump backwards
+     to the same point at every station. */
+  MUS.single = MUS.sounds.length <= 1;
+  MUS.perStation = !MUS.single;
+  const first = MUS.sounds[0] || {};
+  MUS.name = MUS.sounds.length > 1
+    ? MUS.sounds.length + " tracks" : (first.title || "SoundCloud track");
+  MUS.by = (first.user && first.user.username) || "";
+  MUS.duration = MUS.sounds.reduce((a,s) => a + (s.duration||0), 0) / 1000;
+  w.bind(SC.Widget.Events.PLAY, () => scNowPlaying());
 }
-function musicActive(){ return MUSIC.on && !!MUSIC.token && MUSIC.tracks.length > 0; }
-async function musicPlay(){
-  if (!musicActive()) return;
-  const t = MUSIC.order[MUSIC.idx % MUSIC.order.length];
-  MUSIC.idx++;
-  const pos = Math.max(0, Math.min(Math.round(t.ms * MUSIC.pct/100), Math.max(0, t.ms - 20000)));
-  const q = MUSIC.deviceId ? "?device_id=" + MUSIC.deviceId : "";
+function scNowPlaying(){
+  if (!MUS.widget) return;
+  MUS.widget.getCurrentSound(s => {
+    const el = $("#npTrack"); if (!el) return;
+    if (!s) return;
+    const who = (s.user && s.user.username) ? s.user.username + " — " : "";
+    el.textContent = who + (s.title || "");
+  });
+}
+async function scStation(){
+  if (!MUS.ready || !MUS.sounds.length) return;
+  if (!MUS.perStation) return;          /* a mix plays straight through */
+  const i = MUS.order[MUS.idx % MUS.order.length];
+  MUS.idx++;
+  const snd = MUS.sounds[i] || {};
+  const ms  = snd.duration || 0;
+  const at  = Math.max(0, Math.min(Math.round(ms * MUS.pct/100), Math.max(0, ms - 20000)));
   try{
-    await api("/me/player/play" + q, { method:"PUT", body:{ uris:[t.uri], position_ms: pos } });
-    $("#npTrack").textContent = t.name;
-    $("#nowplaying").classList.remove("hide");
-    MUSIC.err = "";
-  }catch(e){
-    MUSIC.err = e.message;
-    $("#npTrack").textContent = "Music: " + e.message;
-    $("#nowplaying").classList.remove("hide");
-  }
-}
-async function musicPause(){ if (!musicActive()) return; try{ await api("/me/player/pause", {method:"PUT"}); }catch(e){} }
-async function musicResume(){ if (!musicActive()) return; try{ await api("/me/player/play", {method:"PUT"}); }catch(e){} }
-function musicStop(){ musicPause(); $("#nowplaying").classList.add("hide"); $("#tMusic").classList.add("hide"); }
-function musicStart(){
-  if (!musicActive()){ musicStop(); return; }
-  musicOrder();
-  $("#tMusic").classList.remove("hide"); $("#tMusic").classList.remove("off");
-  musicPlay();
+    if (MUS.sounds.length > 1) MUS.widget.skip(i);
+    MUS.widget.seekTo(at);
+    MUS.widget.play();
+  }catch(e){}
+  setTimeout(scNowPlaying, 350);
 }
 
-/* ---------- setup UI ---------- */
-function musicErr(m){ MUSIC.err = m; musicRender(); }
-function musicRender(){
-  const signedIn = !!MUSIC.token && !!MUSIC.me;
-  $("#mSetup").classList.toggle("hide", !!MUSIC.clientId || signedIn);
-  $("#mConnect").classList.toggle("hide", !MUSIC.clientId || signedIn);
-  $("#mAccount").classList.toggle("hide", !signedIn);
-  const _ru = redirectUri();
-  ["#mRedirect","#mRedirect2"].forEach(id => { const e = $(id); if (e) e.textContent = _ru; });
-  if (signedIn){
-    $("#mWho").textContent = MUSIC.me.display_name || MUSIC.me.id;
-    const sel = $("#mPlaylist");
-    sel.innerHTML = '<option value="">Choose a playlist…</option>' +
-      MUSIC.playlists.map(p => '<option value="'+p.id+'"'+(p.id===MUSIC.playlistId?" selected":"")+'>'+
-        p.name.replace(/</g,"&lt;")+'  ('+p.n+')</option>').join("");
-    const d = $("#mDevice");
-    d.innerHTML = MUSIC.devices.length
-      ? MUSIC.devices.map(x => '<option value="'+x.id+'"'+(x.id===MUSIC.deviceId?" selected":"")+'>'+
-          x.name.replace(/</g,"&lt;")+(x.is_active?" • active":"")+'</option>').join("")
-      : '<option value="">No devices — open Spotify somewhere</option>';
-  }
-  const n = MUSIC.tracks.length;
-  const st = $("#mStat");
-  if (MUSIC.err){ st.textContent = MUSIC.err; st.className = "mstat bad"; }
-  else if (!signedIn){ st.textContent = "Not connected"; st.className = "mstat bad"; }
-  else if (!n){ st.textContent = "Pick a playlist"; st.className = "mstat bad"; }
-  else { st.textContent = n + " tracks loaded"; st.className = "mstat"; }
+/* ---------------- Mixcloud ---------------- */
+async function mcMeta(key){
+  const r = await fetch("https://api.mixcloud.com" + key);
+  if (!r.ok) throw new Error(r.status === 404 ? "No mix at that link — check the URL"
+                                              : "Mixcloud returned " + r.status);
+  const d = await r.json();
+  MUS.key = key;
+  MUS.name = d.name || "Untitled mix";
+  MUS.by = (d.user && (d.user.name || d.user.username)) || "";
+  MUS.duration = d.audio_length || 0;
+  MUS.sections = Array.isArray(d.sections)
+    ? d.sections.filter(s => s && typeof s.start_time === "number")
+        .map(s => ({ t:s.start_time,
+                     song:(s.track && s.track.name) || s.song || "",
+                     artist:(s.track && s.track.artist && s.track.artist.name) || s.artist || "" }))
+        .sort((a,b) => a.t - b.t)
+    : [];
 }
-let _queue = Promise.resolve();
-function guard(fn){
-  /* serialise rather than drop — a click made while another request is in
-     flight must still run, just after the one ahead of it */
-  const _step = async () => {
-    MUSIC.busy = true; MUSIC.err = ""; musicRender();
-    try{ await fn(); }catch(e){ MUSIC.err = e.message || String(e); }
-    MUSIC.busy = false; musicRender();
-  };
-  _queue = _queue.then(_step, _step);   // a rejection must not kill the queue
-  return _queue;
+async function mcBuild(){
+  await loadScriptOnce("https://widget.mixcloud.com/media/js/widgetApi.js", "Mixcloud");
+  const host = $("#mixplayer"); host.innerHTML = "";
+  const f = document.createElement("iframe");
+  f.width = "100%"; f.height = "60"; f.frameBorder = "0"; f.allow = "autoplay";
+  f.src = "https://www.mixcloud.com/widget/iframe/?hide_cover=1&mini=1&feed=" + encodeURIComponent(MUS.key);
+  host.appendChild(f);
+  const w = Mixcloud.PlayerWidget(f);
+  await w.ready;
+  MUS.widget = w; MUS.ready = true;
+  w.events.error.on(() => { MUS.err = "Mixcloud player error"; musRender(); });
+  w.events.progress.on(pos => {
+    const i = mcIndexAt(pos);
+    if (i !== MUS.curIdx){ MUS.curIdx = i; mcNowPlaying(); }
+  });
+}
+function mcIndexAt(pos){
+  let i = -1;
+  for (let k = 0; k < MUS.sections.length; k++){ if (MUS.sections[k].t <= pos + 0.25) i = k; else break; }
+  return i;
+}
+function mcNowPlaying(){
+  const el = $("#npTrack"); if (!el) return;
+  const s = MUS.sections[MUS.curIdx];
+  el.textContent = (s && (s.artist || s.song))
+    ? (s.artist ? s.artist + " — " : "") + (s.song || "")
+    : (MUS.name || "Mix playing");
+}
+
+/* ---------------- what the workout calls ---------------- */
+function musicActive(){ return MUS.on && MUS.ready && !!MUS.src; }
+function musOrder(){
+  const n = MUS.sounds.length;
+  const a = Array.from({length:n}, (_,i) => i);
+  if (MUS.shuffle) for (let i=n-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); const t=a[i]; a[i]=a[j]; a[j]=t; }
+  MUS.order = a; MUS.idx = 0;
+}
+async function musicStart(){
+  if (!MUS.on || !MUS.src){ musicStop(); return; }
+  $("#tMusic").classList.remove("hide","off");
+  $("#nowplaying").classList.remove("hide");
+  musShowPlayer(true);
+  try{
+    if (MUS.src === "soundcloud"){
+      if (MUS.perStation){ musOrder(); await scStation(); }
+      else { try{ MUS.widget.seekTo(0); }catch(e){}
+             MUS.widget.play(); setTimeout(scNowPlaying, 350); }
+    } else {
+      try{ await MUS.widget.seek(0); }catch(e){}
+      await MUS.widget.play(); mcNowPlaying();
+    }
+  }catch(e){ $("#npTrack").textContent = "Music: " + (e.message || e); }
+}
+function musicStation(){
+  if (!musicActive()) return;
+  if (MUS.src === "soundcloud") scStation();     /* new track every station */
+}
+async function musicHalfBreak(){
+  if (!musicActive() || MUS.src !== "mixcloud" || !MUS.align || !MUS.sections.length) return;
+  try{
+    const pos = await MUS.widget.getPosition();
+    for (const s of MUS.sections) if (s.t > pos + 2){ await MUS.widget.seek(s.t); break; }
+  }catch(e){}
+}
+function musicPause(){ try{ MUS.ready && MUS.widget.pause(); }catch(e){} }
+function musicResume(){ try{ MUS.ready && MUS.widget.play(); }catch(e){} }
+function musicStop(){
+  musicPause();
+  $("#nowplaying").classList.add("hide");
+  $("#tMusic").classList.add("hide");
+  /* the player itself stays mounted and visible while a mix is loaded —
+     both SoundCloud and Mixcloud require a visible widget for their API */
+}
+function musShowPlayer(on){
+  $("#mixwrap").classList.toggle("hide", !on);
+  document.body.classList.toggle("mixon", !!on);
+}
+
+/* ---------------- setup UI ---------------- */
+function musRender(){
+  const loaded = MUS.ready && !!MUS.src;
+  $("#mixInfo").classList.toggle("hide", !loaded);
+  if (loaded){
+    $("#mixName").textContent = MUS.name;
+    $("#mixBy").textContent = MUS.by ? "by " + MUS.by : "";
+    if (MUS.src === "soundcloud"){
+      $("#mixMeta").textContent = MUS.sounds.length > 1
+        ? MUS.sounds.length + " tracks  ·  " + (MUS.perStation
+            ? "a new one at every station" : "playing straight through")
+        : "one continuous mix  ·  plays straight through from the start";
+    } else {
+      const n = MUS.sections.length;
+      $("#mixMeta").textContent = (MUS.duration ? musSecs(MUS.duration) + "  ·  " : "") +
+        (n ? n + " tracks in the tracklist" : "no tracklist on this mix — it'll just play through");
+    }
+    $("#mixScRow").classList.toggle("hide", MUS.src !== "soundcloud");
+    $("#mixPerFld").classList.toggle("hide", MUS.sounds.length < 2);
+    $("#mixPctFld").classList.toggle("hide", !MUS.perStation);
+    $("#mixShufFld").classList.toggle("hide", !MUS.perStation);
+    $("#mixMcRow").classList.toggle("hide", MUS.src !== "mixcloud" || !MUS.sections.length);
+  }
+  const st = $("#mixStat");
+  if (MUS.err){ st.textContent = MUS.err; st.className = "mstat bad"; }
+  else if (MUS.loading){ st.textContent = "Loading…"; st.className = "mstat"; }
+  else if (!loaded){ st.textContent = "No mix or playlist chosen yet"; st.className = "mstat bad"; }
+  else { st.textContent = "Ready"; st.className = "mstat"; }
+}
+async function musUse(raw){
+  const url = String(raw||"").trim();
+  const prov = musProvider(url);
+  if (!prov){ MUS.err = "Paste a SoundCloud or Mixcloud link"; musRender(); return; }
+  MUS.err = ""; MUS.loading = true; MUS.ready = false; MUS.widget = null;
+  MUS.sections = []; MUS.sounds = []; MUS.curIdx = -1; MUS.src = ""; musRender();
+  musShowPlayer(true);
+  try{
+    if (prov === "soundcloud"){ await scBuild(url); }
+    else {
+      const key = mixKey(url);
+      if (!key) throw new Error("That Mixcloud link is missing the mix name");
+      await mcMeta(key); await mcBuild();
+    }
+    MUS.src = prov; MUS.url = url;
+  }catch(e){ MUS.err = e.message || String(e); MUS.ready = false; }
+  musShowPlayer(MUS.ready);
+  MUS.loading = false; musRender();
 }
 
 $("#mToggle").onclick = () => {
-  MUSIC.on = !MUSIC.on;
-  $("#mToggle").textContent = MUSIC.on ? "On" : "Off";
-  $("#mToggle").classList.toggle("on", MUSIC.on);
-  $("#mBody").classList.toggle("hide", !MUSIC.on);
+  MUS.on = !MUS.on;
+  $("#mToggle").textContent = MUS.on ? "On" : "Off";
+  $("#mToggle").classList.toggle("on", MUS.on);
+  $("#mBody").classList.toggle("hide", !MUS.on);
+  musShowPlayer(MUS.on && MUS.ready);
 };
-$("#mSaveId").onclick = () => {
-  const v = $("#mClientId").value.trim();
-  if (!/^[0-9a-f]{32}$/i.test(v)){ musicErr("That doesn't look like a Client ID (32 hex characters)."); return; }
-  MUSIC.clientId = v; localStorage.setItem(LS_ID, v); MUSIC.err = ""; musicRender();
+$("#mixLoad").onclick = () => musUse($("#mixUrl").value);
+$("#mixUrl").onkeydown = e => { if (e.key === "Enter"){ e.preventDefault(); musUse($("#mixUrl").value); } };
+$("#mixPer").onclick = () => {
+  MUS.perStation = !MUS.perStation;
+  $("#mixPer").textContent = MUS.perStation ? "On" : "Off";
+  $("#mixPer").classList.toggle("on", MUS.perStation);
+  musRender();
 };
-$("#mConnectBtn").onclick = () => spLogin();
-$("#mSignOut").onclick = () => {
-  MUSIC.token = ""; MUSIC.refresh = ""; MUSIC.me = null; MUSIC.tracks = []; MUSIC.playlists = [];
-  localStorage.removeItem(LS_RT); localStorage.removeItem(LS_PL); musicRender();
+$("#mixShuffle").onclick = () => {
+  MUS.shuffle = !MUS.shuffle;
+  $("#mixShuffle").textContent = MUS.shuffle ? "On" : "Off";
+  $("#mixShuffle").classList.toggle("on", MUS.shuffle);
 };
-$("#mForget").onclick = () => {
-  localStorage.removeItem(LS_ID); MUSIC.clientId = ""; $("#mClientId").value = ""; musicRender();
+$("#mixAlign").onclick = () => {
+  MUS.align = !MUS.align;
+  $("#mixAlign").textContent = MUS.align ? "On" : "Off";
+  $("#mixAlign").classList.toggle("on", MUS.align);
 };
-$("#mPlaylist").onchange = () => { const id = $("#mPlaylist").value; if (id) guard(() => spLoadTracks(id)); };
-$("#mRefreshDev").onclick = () => guard(spDevices);
-$("#mDevice").onchange = () => { MUSIC.deviceId = $("#mDevice").value; };
-$("#mBrowser").onclick = () => guard(spLoadSdk);
-$("#mPct").onchange = () => {
-  const v = Math.min(90, Math.max(0, Math.round(+$("#mPct").value || 0)));
-  MUSIC.pct = v; $("#mPct").value = v;
+$("#mixPct").onchange = () => {
+  const v = Math.min(90, Math.max(0, Math.round(+$("#mixPct").value || 0)));
+  MUS.pct = v; $("#mixPct").value = v;
 };
-$("#mShuffle").classList.add("on");
-$("#mShuffle").onclick = () => {
-  MUSIC.shuffle = !MUSIC.shuffle;
-  $("#mShuffle").textContent = MUSIC.shuffle ? "On" : "Off";
-  $("#mShuffle").classList.toggle("on", MUSIC.shuffle);
+$("#tMusic").onclick = () => {
+  const off = $("#tMusic").classList.toggle("off");
+  if (off) musicPause(); else musicResume();
 };
-$("#tMusic").onclick = () => { $("#tMusic").classList.toggle("off") ? musicPause() : musicResume(); };
-
-/* ---------- boot the music layer ---------- */
-(function musicBoot(){
-  MUSIC.clientId = localStorage.getItem(LS_ID) || "";
-  MUSIC.refresh  = localStorage.getItem(LS_RT) || "";
-  if (MUSIC.clientId) $("#mClientId").value = MUSIC.clientId;
-  const q = new URLSearchParams(location.search);
-  const code = q.get("code"), oerr = q.get("error");
-  if (code || oerr) history.replaceState({}, "", redirectUri());
-  const after = async () => {
-    await spLoadMe(); await spLoadPlaylists(); await spDevices();
-    const last = localStorage.getItem(LS_PL);
-    if (last && MUSIC.playlists.some(p => p.id === last)) await spLoadTracks(last);
-    MUSIC.on = true;
-    $("#mToggle").textContent = "On"; $("#mToggle").classList.add("on");
-    $("#mBody").classList.remove("hide");
-  };
-  if (oerr){ musicErr("Spotify returned: " + oerr); return; }
-  if (code) guard(async () => { await spExchange(code); await after(); });
-  else if (MUSIC.refresh) guard(async () => { if (await spRefresh()) await after(); });
-  else musicRender();
-})();
+$("#mixShuffle").classList.add("on");
+$("#mixPer").classList.add("on");
+$("#mixAlign").classList.add("on");
+musRender();
 
 /* =========================================================
    12. BOOT
@@ -1720,5 +1727,6 @@ $("#tMusic").onclick = () => { $("#tMusic").classList.toggle("off") ? musicPause
 S.cfg = cfgFromPreset(PRESETS[0]);
 renderPresets(); renderEquip(); renderConfig();
 </script>
+<div id="mixwrap" class="hide"><div id="mixplayer"></div></div>
 </body>
 </html>
