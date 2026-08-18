@@ -701,7 +701,7 @@ const LIB = [
  {n:"Goblet Cossack Squat",p:"legs",e:"dbkb",c:"Sit into one hip, alternate sides"},
  {n:"DB Walking Lunge",p:"legs",e:"dbkb",c:"Knee kisses the floor, drive out of the heel"},
  // ---- dumbbell / kettlebell: core
- {n:"DB Russian Twist",p:"core",e:"dbkb",c:"Heels light, rotate the ribcage"},
+ {n:"KB Russian Twist",p:"core",e:"dbkb",c:"Heels light, rotate the ribcage"},
  {n:"KB Windmill",p:"core",e:"dbkb",c:"Eyes on the bell, push the hip out"},
  {n:"Weighted Dead Bug",p:"core",e:"dbkb",c:"Arms locked overhead, ribs down"},
  {n:"Sit-Up to Press",p:"core",e:"dbkb",c:"Sit up, press overhead, control back down"},
@@ -979,6 +979,99 @@ function T(a){
 }
 const seg = (o,a,L) => ({ x:o.x + L*Math.sin(a*RAD), y:o.y + L*Math.cos(a*RAD) });
 
+/* How far down a held weight reaches, in skeleton units.
+   Auto-grounding measures joints only, so without this the plates and
+   bells punch straight through the floor on anything done lying down
+   or bent over — the hands are the lowest joint and the weight hangs
+   below them. Mirrors the geometry in plate() and bell(). */
+function propList(def){
+  return Array.isArray(def.prop) ? def.prop : (def.prop ? [def.prop] : []);
+}
+function propLowY(def, S){
+  if (!def.prop) return -1e9;
+  if (Array.isArray(def.prop))
+    return Math.max(...def.prop.map(pr => propLowY({prop:pr}, S)));
+  const plateLow = (wr, el, size) => {
+    const dx = wr.x - el.x, dy = wr.y - el.y, L = Math.hypot(dx,dy) || 1;
+    return wr.y + (size||7)*Math.abs(dx/L) + 1.1;   // + rim half-thickness
+  };
+  const BELL = 6.2*0.35 + 6.2*0.75 + 1.1;
+  switch (def.prop){
+    case "db":  return Math.max(plateLow(S.wrN,S.elN), plateLow(S.wrF,S.elF));
+    case "db1": return plateLow(S.wrN, S.elN);
+    case "erg": return plateLow(S.wrN, S.elN, 5);
+    case "kb":  return (S.wrN.y + S.wrF.y)/2 + BELL;
+    case "kb1": return S.wrN.y + BELL;
+  }
+  return -1e9;
+}
+
+/* Extent of the whole animation cycle, in skeleton units, including
+   held weights and the jump apex. Cached per def, so the figure keeps
+   one constant size for the whole loop instead of breathing as the
+   limbs swing. Lying-down poses are only ~45 units tall against a
+   standing figure's 118, which is why they used to render tiny and
+   glued to the bottom of the frame. */
+/* How high the foot gets, and where it lands, over the whole cycle —
+   used to place a box once instead of per frame. */
+function stepGeom(def){
+  if (def._st) return def._st;
+  const frames = def._f || (def._f = def.frames.map(T));
+  const front = def.view === "front";
+  let h = 0, x = 0;
+  for (let i = 0; i < 32; i++){
+    const S = skeleton(lerpPose(frames, i/32), front);
+    let lo = -1e9; for (const q of Object.values(S)) if (q.y > lo) lo = q.y;
+    for (const toe of [S.toN, S.toF, S.anN, S.anF]){
+      const up = lo - toe.y;
+      if (up > h){ h = up; x = toe.x; }
+    }
+  }
+  return (def._st = { h, x });
+}
+
+/* A pull-up bar is bolted to the wall. Deriving its height from the
+   wrists each frame made it ride up and down with the body on the
+   inverted row, so average it over the cycle and leave it there.
+   Hand-anchored animations already pin the wrists, so they keep the
+   live position. */
+function barLevel(def){
+  if (def._bar !== undefined) return def._bar;
+  const frames = def._f || (def._f = def.frames.map(T));
+  const front = def.view === "front";
+  let sum = 0;
+  for (let i = 0; i < 32; i++){
+    const S = skeleton(lerpPose(frames, i/32), front);
+    let lo = -1e9; for (const q of Object.values(S)) if (q.y > lo) lo = q.y;
+    sum += lo - (S.wrN.y + S.wrF.y)/2;
+  }
+  return (def._bar = sum/32);
+}
+
+function cycleBounds(def){
+  if (def._bb) return def._bb;
+  const frames = def._f || (def._f = def.frames.map(T));
+  const front = def.view === "front";
+  let h = 0, w = 0;
+  for (let i = 0; i < 32; i++){
+    const pose = lerpPose(frames, i/32);
+    const S = skeleton(pose, front);
+    let lo = -1e9, hi = 1e9, xa = 1e9, xb = -1e9;
+    for (const q of Object.values(S)){
+      if (q.y > lo) lo = q.y; if (q.y < hi) hi = q.y;
+      if (q.x < xa) xa = q.x; if (q.x > xb) xb = q.x;
+    }
+    if (def.anchor !== "hands"){
+      const pl = propLowY(def, S);
+      if (pl > lo) lo = pl;
+    }
+    h = Math.max(h, lo - hi + (pose.lift || 0));
+    w = Math.max(w, xb - xa);
+  }
+  const pad = FIG.head + 6;                 // head radius + stroke
+  return (def._bb = { w: w + pad*2, h: Math.max(h, 82) + pad*2 });
+}
+
 /* Build joint positions with the pelvis at the origin. */
 function skeleton(p, front){
   const pel = {x:0, y:0};
@@ -1027,8 +1120,10 @@ function drawFigure(ctx, W, H, def, u, theme){
   const pts = Object.values(S);
   let maxY = -1e9, minX = 1e9, maxX = -1e9;
   for (const p of pts){ if (p.y > maxY) maxY = p.y; if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x; }
+  if (def.anchor !== "hands") maxY = Math.max(maxY, propLowY(def, S));
 
-  const scale = Math.min(H*0.88/118, W*0.94/108);
+  const bb = cycleBounds(def);
+  const scale = Math.min(H*0.90/bb.h, W*0.94/bb.w);
   const groundY = H*0.93;
   let dy;
   if (def.anchor === "hands"){
@@ -1050,7 +1145,8 @@ function drawFigure(ctx, W, H, def, u, theme){
   ctx.beginPath(); ctx.moveTo(W*0.06, groundY); ctx.lineTo(W*0.94, groundY); ctx.stroke();
   ctx.setLineDash([]);
 
-  if (def.prop && PROPS[def.prop]) PROPS[def.prop](ctx, S, X, Y, scale, theme, "back", pose, groundY, W, H);
+  const props = propList(def);
+  props.forEach(pr => PROPS[pr] && PROPS[pr](ctx, S, X, Y, scale, theme, "back", pose, groundY, W, H, def));
 
   const bone = (a,b,color,w) => {
     ctx.strokeStyle = color; ctx.lineWidth = w||lw; ctx.lineCap = "round"; ctx.lineJoin = "round";
@@ -1076,7 +1172,7 @@ function drawFigure(ctx, W, H, def, u, theme){
   // head
   ctx.fillStyle = near; ctx.beginPath(); ctx.arc(X(S.head),Y(S.head), FIG.head*scale, 0, 7); ctx.fill();
 
-  if (def.prop && PROPS[def.prop]) PROPS[def.prop](ctx, S, X, Y, scale, theme, "front", pose, groundY, W, H);
+  props.forEach(pr => PROPS[pr] && PROPS[pr](ctx, S, X, Y, scale, theme, "front", pose, groundY, W, H, def));
 }
 
 /* ---------------------------------------------------------
@@ -1109,11 +1205,15 @@ const PROPS = {
   kb(ctx,S,X,Y,s,th,layer){ if(layer!=="front") return;
     const mx=(X(S.wrN)+X(S.wrF))/2, my=(Y(S.wrN)+Y(S.wrF))/2; bell(ctx,mx,my,s,th.prop); },
   kb1(ctx,S,X,Y,s,th,layer){ if(layer!=="front") return; bell(ctx,X(S.wrN),Y(S.wrN),s,th.prop); },
-  box(ctx,S,X,Y,s,th,layer,pose,gy,W){ if(layer!=="back") return;
-    const ty = Math.min(Y(S.toN), Y(S.anN)); if (gy-ty < 8) return;
-    const w = 34*s, cx = X(S.anN);
+  /* A box is furniture — it has to stay put. Sizing it off the foot
+     each frame made it blink out whenever the foot was down. Size and
+     place it once from the highest step of the whole cycle instead. */
+  box(ctx,S,X,Y,s,th,layer,pose,gy,W,H,def){ if(layer!=="back") return;
+    const st = stepGeom(def); if (st.h < 6) return;
+    const w = 34*s, cx = X({x: st.x});
+    const top = gy - st.h*s;
     ctx.strokeStyle = th.prop; ctx.lineWidth = 2.2*s;
-    ctx.strokeRect(cx-w/2, ty+2*s, w, gy-ty-2*s); },
+    ctx.strokeRect(cx-w/2, top, w, gy-top); },
   bench(ctx,S,X,Y,s,th,layer,pose,gy){ if(layer!=="back") return;
     const ty = Math.max(Y(S.wrN), Y(S.wrF)); if (gy-ty < 8) return;
     const x1 = Math.min(X(S.wrN),X(S.wrF))-16*s, x2 = Math.max(X(S.wrN),X(S.wrF))+16*s;
@@ -1125,8 +1225,10 @@ const PROPS = {
     const x = Math.min(X(S.shoulder),X(S.head))-9*s;
     ctx.strokeStyle = th.prop; ctx.lineWidth = 2.4*s;
     ctx.beginPath(); ctx.moveTo(x, gy); ctx.lineTo(x, H*0.14); ctx.stroke(); },
-  bar(ctx,S,X,Y,s,th,layer,pose,gy,W){ if(layer!=="back") return;
-    const y = (Y(S.wrN)+Y(S.wrF))/2 - 1;
+  bar(ctx,S,X,Y,s,th,layer,pose,gy,W,H,def){ if(layer!=="back") return;
+    const y = (def && def.anchor !== "hands")
+      ? gy - barLevel(def)*s
+      : (Y(S.wrN)+Y(S.wrF))/2 - 1;
     ctx.strokeStyle = th.prop; ctx.lineWidth = 2.6*s;
     ctx.beginPath(); ctx.moveTo(W*0.12,y); ctx.lineTo(W*0.88,y); ctx.stroke(); },
   rope(ctx,S,X,Y,s,th,layer,pose,gy,W,H){ if(layer!=="back") return;
@@ -1397,7 +1499,7 @@ const EXA = {
  // DB / KB push
  "DB Floor Press":{b:"floorPress",prop:"db"}, "DB Shoulder Press":{b:"pressOH",prop:"db"},
  "Arnold Press":{b:"pressOH",prop:"db",dur:2500}, "DB Chest Fly":{b:"fly",prop:"db"},
- "KB Z-Press":{b:"zpress",prop:"db"}, "DB Close-Grip Press":{b:"floorPress",prop:"db",dur:2400},
+ "KB Z-Press":{b:"zpress",prop:"kb"}, "DB Close-Grip Press":{b:"floorPress",prop:"db",dur:2400},
  // DB / KB pull
  "Bent-Over DB Row":{b:"rowBent",prop:"db"}, "Single-Arm DB Row":{b:"rowSingle",prop:"db1"},
  "Renegade Row":{b:"renegade",prop:"db"}, "DB Upright Row":{b:"upright",prop:"db"},
@@ -1406,11 +1508,11 @@ const EXA = {
  // DB / KB legs
  "Goblet Squat":{b:"squat",arms:AG,prop:"kb"}, "DB Reverse Lunge":{b:"lungeRev",prop:"db"},
  "DB Romanian Deadlift":{b:"hinge",prop:"db"}, "DB Front Squat":{b:"squat",arms:AR,prop:"db"},
- "DB Step-Up":{b:"stepUp",prop:"db"}, "DB Sumo Deadlift":{b:"sumoDL",prop:"db"},
+ "DB Step-Up":{b:"stepUp",prop:["box","db"]}, "DB Sumo Deadlift":{b:"sumoDL",prop:"db"},
  "Farmer Carry":{b:"carry"}, "Goblet Cossack Squat":{b:"cossack",arms:AG,prop:"kb"},
  "DB Walking Lunge":{b:"lungeRev",prop:"db",dur:3000},
  // DB / KB core
- "DB Russian Twist":{b:"russian",prop:"kb"}, "KB Windmill":{b:"windmill",prop:"db1"},
+ "KB Russian Twist":{b:"russian",prop:"kb"}, "KB Windmill":{b:"windmill",prop:"kb1"},
  "Weighted Dead Bug":{b:"deadBug",prop:"db"}, "Sit-Up to Press":{b:"situpPress",prop:"db"},
  "Plank Drag-Through":{b:"plankDrag"}, "Suitcase Carry":{b:"carry1"},
  // DB / KB power
@@ -1944,26 +2046,6 @@ function musProvider(u){
   if (/mixcloud\.com\//i.test(s))   return "mixcloud";
   return "";
 }
-/* People paste whatever the share sheet hands them. The mobile host
-   m.soundcloud.com resolves fine through oEmbed but the *widget* rejects it
-   outright with "not a valid SoundCloud URL", and share links arrive carrying
-   ?si= tracking params. Normalise before anything downstream sees the URL.
-   secret_token is deliberately preserved — stripping it kills private links. */
-function musNormalize(raw){
-  let s = String(raw||"").trim();
-  if (!s) return "";
-  s = s.replace(/^https?:\/\//i, "");
-  s = s.replace(/^(?:m|mobile|www)\.((?:soundcloud|mixcloud)\.com\/)/i, "$1");
-  s = "https://" + s;
-  try{
-    const u = new URL(s);
-    ["si","utm_source","utm_medium","utm_campaign","utm_content","utm_term","ref"]
-      .forEach(k => u.searchParams.delete(k));
-    u.hash = "";
-    s = u.toString().replace(/\?$/, "");
-  }catch(e){}
-  return s;
-}
 function mixKey(input){
   const m = String(input||"").match(/mixcloud\.com\/([^\/\s?#]+)\/([^\/\s?#]+)/i);
   return m ? "/" + m[1] + "/" + m[2] + "/" : "";
@@ -2168,7 +2250,7 @@ function musRender(){
   if (sum) sum.textContent = !MUS.on ? "Off" : (loaded ? (MUS.name || "Ready") : "On — no mix yet");
 }
 async function musUse(raw){
-  const url = musNormalize(raw);
+  const url = String(raw||"").trim();
   const prov = musProvider(url);
   if (!prov){ MUS.err = "Paste a SoundCloud or Mixcloud link"; musRender(); return; }
   MUS.err = ""; MUS.loading = true; MUS.ready = false; MUS.widget = null;
