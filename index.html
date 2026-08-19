@@ -161,6 +161,22 @@ details.sec[open] > summary{border-bottom:1px solid var(--line)}
 .phys.on .ds{color:var(--dim)}
 .hint{font-size:12px;color:var(--dim2);line-height:1.55;margin:9px 2px 0}
 
+/* ---------- mix library ---------- */
+.mixlist{display:flex;flex-direction:column;gap:7px;margin-bottom:14px}
+.mixitem{display:flex;align-items:center;gap:10px;background:var(--panel2);
+  border:1px solid var(--line);border-radius:11px;padding:10px 11px;transition:.14s}
+.mixitem:hover{border-color:#3a3a42}
+.mixitem.on{border-color:var(--ink);background:#141417}
+.mixitem .go{flex:1;min-width:0;text-align:left}
+.mixitem .t1{font-size:13.5px;font-weight:700;line-height:1.3;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mixitem .t2{font-size:11.5px;color:var(--dim2);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mixitem .src{font-size:8.5px;letter-spacing:1.1px;text-transform:uppercase;font-weight:800;
+  color:var(--dim2);background:#1d1d21;border-radius:4px;padding:3px 5px;flex:0 0 auto}
+.mixitem .rm{flex:0 0 auto;width:32px;height:32px;border-radius:8px;color:var(--dim2);
+  display:grid;place-items:center;font-size:15px}
+.mixitem .rm:hover{color:var(--txt);background:#232328}
+.msub{font-size:10.5px;letter-spacing:2px;text-transform:uppercase;color:var(--dim2);font-weight:800;margin:0 0 9px}
+
 /* ---------- identity ---------- */
 canvas.av{display:block;image-rendering:pixelated;image-rendering:crisp-edges}
 .avbox{width:64px;height:64px;flex:0 0 64px;background:#111114;border:1px solid var(--line);
@@ -577,6 +593,14 @@ body.mixon .foot{display:none}
         <button class="chip" id="mToggle" style="min-width:88px;min-height:42px;padding:10px 12px">Off</button>
       </div>
       <div id="mBody" class="hide">
+        <div id="mixLibWrap" class="hide" style="margin-top:12px">
+          <p class="msub">Your mixes</p>
+          <div class="mixlist" id="mixLib"></div>
+        </div>
+        <div id="mixPickWrap" class="hide">
+          <p class="msub">Stations picks</p>
+          <div class="mixlist" id="mixPicks"></div>
+        </div>
         <p class="mnote" style="margin-top:10px">Paste a <b>SoundCloud</b> or <b>Mixcloud</b> link. No account, no sign-in — yours or anyone else’s.</p>
         <div class="mrow">
           <input class="mtx2" id="mixUrl" spellcheck="false" autocomplete="off" inputmode="url"
@@ -619,7 +643,6 @@ body.mixon .foot{display:none}
 <div id="preview" class="wrap hide">
   <div class="brand"><h1>Your <span>session</span></h1></div>
   <p class="lede" id="prevlede"></p>
-  <p class="note hide" id="sharedbanner" style="border-left:2px solid var(--line);padding-left:10px;margin-top:10px"></p>
 
   <div class="section">
     <div class="halfhdr a"><div class="t">Half 1</div><div class="m" id="m0"></div></div>
@@ -635,10 +658,6 @@ body.mixon .foot{display:none}
     <button class="btn" style="flex:1" id="reshuffle">Shuffle all</button>
     <button class="btn" style="flex:1" id="back">Back</button>
   </div>
-  <div class="btnrow" style="margin-top:9px">
-    <button class="btn wide" id="share">Share this workout</button>
-  </div>
-  <p class="note hide" id="sharemsg"></p>
   <p class="note">Tap the ⇄ on any station to swap that exercise for another one that trains the same pattern. Screen stays awake during the session where the browser allows it.</p>
 </div>
 
@@ -2547,7 +2566,6 @@ function quitRun(){
 $("#build").onclick = () => { generateWorkout(); renderPreview(); show("preview"); window.scrollTo(0,0); };
 $("#back").onclick  = () => show("setup");
 $("#reshuffle").onclick = () => { generateWorkout(); renderPreview(); };
-$("#share").onclick = () => doShare();
 $("#start").onclick = () => { if (!S.ac) beep(1,0.01,0.0001); startWorkout(); };
 $("#toggle").onclick = () => setRunning(!S.running);
 $("#next").onclick = () => advance(1);
@@ -2720,13 +2738,20 @@ const MUS = {
   name:"", by:"", duration:0, art:"",
   sections:[], sounds:[], idx:0, curIdx:-1,
   widget:null, ready:false, err:"", loading:false, single:false, perStation:true,
-  pct:35, shuffle:true, align:true, order:[], savedUrl:""
+  pct:35, shuffle:true, align:true, order:[], savedUrl:"", lib:[]
 };
 
 /* ---------------- saved mix ----------------
    The link and the per-station options survive a reload. Nothing is
    fetched on a cold load unless music was switched on when they left —
    the "no network unless music is on" promise still holds. */
+/* Hand-picked mixes that ship with the app. No API, no crawling, no
+   terms to breach — just a list worth curating. Fill it in and it
+   renders itself; leave it empty and the section stays hidden. */
+const PICKS = [
+  // {url:"https://soundcloud.com/…", name:"…", by:"…"},
+];
+
 const MUSKEY = "stations.music.v1";
 
 function musSave(){
@@ -2734,15 +2759,57 @@ function musSave(){
     localStorage.setItem(MUSKEY, JSON.stringify({
       on: MUS.on,
       url: MUS.url || ($("#mixUrl") ? $("#mixUrl").value.trim() : ""),
-      pct: MUS.pct, shuffle: MUS.shuffle, perStation: MUS.perStation, align: MUS.align
+      pct: MUS.pct, shuffle: MUS.shuffle, perStation: MUS.perStation, align: MUS.align,
+      lib: MUS.lib.slice(0, 12)
     }));
   }catch(e){}   // private browsing, quota, disabled storage — never fatal
+}
+
+/* Anything that loaded successfully goes in the library, most recent
+   first, deduped by url. Nothing leaves the device. */
+function libAdd(url, src, name, by){
+  MUS.lib = MUS.lib.filter(x => x.url !== url);
+  MUS.lib.unshift({ url, src, name: name || url, by: by || "" });
+  MUS.lib = MUS.lib.slice(0, 12);
+  musSave(); libRender();
+}
+function libRemove(url){
+  MUS.lib = MUS.lib.filter(x => x.url !== url);
+  musSave(); libRender();
+}
+function mixRow(x, removable){
+  return '<div class="mixitem' + (x.url === MUS.url ? " on" : "") + '">' +
+    '<button class="go" data-u="' + encodeURIComponent(x.url) + '">' +
+      '<div class="t1">' + esc(x.name) + '</div>' +
+      (x.by ? '<div class="t2">' + esc(x.by) + '</div>' : '') +
+    '</button>' +
+    '<span class="src">' + (x.src === "mixcloud" ? "MC" : "SC") + '</span>' +
+    (removable ? '<button class="rm" data-x="' + encodeURIComponent(x.url) + '" title="Remove">×</button>' : '') +
+    '</div>';
+}
+const esc = t => String(t).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+function libRender(){
+  const wrap = $("#mixLibWrap"); if (!wrap) return;
+  wrap.classList.toggle("hide", !MUS.lib.length);
+  $("#mixLib").innerHTML = MUS.lib.map(x => mixRow(x, true)).join("");
+
+  const pw = $("#mixPickWrap");
+  pw.classList.toggle("hide", !PICKS.length);
+  $("#mixPicks").innerHTML = PICKS.map(x => mixRow(
+    { url:x.url, src: musProvider(x.url), name:x.name, by:x.by }, false)).join("");
+
+  $$("#mixLib .go, #mixPicks .go").forEach(b =>
+    b.onclick = () => musUse(decodeURIComponent(b.dataset.u)));
+  $$("#mixLib .rm").forEach(b =>
+    b.onclick = () => libRemove(decodeURIComponent(b.dataset.x)));
 }
 function musRestore(){
   let d = null;
   try{ d = JSON.parse(localStorage.getItem(MUSKEY) || "null"); }catch(e){}
   if (!d || !d.url || !musProvider(d.url)) { musRender(); return; }
 
+  MUS.lib        = Array.isArray(d.lib) ? d.lib : [];
   MUS.pct        = typeof d.pct === "number" ? d.pct : MUS.pct;
   MUS.shuffle    = d.shuffle    !== false;
   MUS.perStation = d.perStation !== false;
@@ -2756,6 +2823,7 @@ function musRestore(){
   $("#mixAlign").textContent = MUS.align ? "On" : "Off";
   $("#mixAlign").classList.toggle("on", MUS.align);
   $("#mixForget").classList.remove("hide");
+  libRender();
 
   if (d.on){
     MUS.on = true;
@@ -2782,26 +2850,6 @@ function musProvider(u){
   if (/soundcloud\.com\//i.test(s)) return "soundcloud";
   if (/mixcloud\.com\//i.test(s))   return "mixcloud";
   return "";
-}
-/* People paste whatever the share sheet hands them. The mobile host
-   m.soundcloud.com resolves fine through oEmbed but the *widget* rejects it
-   outright with "not a valid SoundCloud URL", and share links arrive carrying
-   ?si= tracking params. Normalise before anything downstream sees the URL.
-   secret_token is deliberately preserved — stripping it kills private links. */
-function musNormalize(raw){
-  let s = String(raw||"").trim();
-  if (!s) return "";
-  s = s.replace(/^https?:\/\//i, "");
-  s = s.replace(/^(?:m|mobile|www)\.((?:soundcloud|mixcloud)\.com\/)/i, "$1");
-  s = "https://" + s;
-  try{
-    const u = new URL(s);
-    ["si","utm_source","utm_medium","utm_campaign","utm_content","utm_term","ref"]
-      .forEach(k => u.searchParams.delete(k));
-    u.hash = "";
-    s = u.toString().replace(/\?$/, "");
-  }catch(e){}
-  return s;
 }
 function mixKey(input){
   const m = String(input||"").match(/mixcloud\.com\/([^\/\s?#]+)\/([^\/\s?#]+)/i);
@@ -3003,11 +3051,12 @@ function musRender(){
     st.className = "mstat bad";
   }
   else { st.textContent = "Ready"; st.className = "mstat"; }
+  libRender();
   const sum = $("#musicSum");
   if (sum) sum.textContent = !MUS.on ? "Off" : (loaded ? (MUS.name || "Ready") : "On — no mix yet");
 }
 async function musUse(raw){
-  const url = musNormalize(raw);
+  const url = String(raw||"").trim();
   const prov = musProvider(url);
   if (!prov){ MUS.err = "Paste a SoundCloud or Mixcloud link"; musRender(); return; }
   MUS.err = ""; MUS.loading = true; MUS.ready = false; MUS.widget = null;
@@ -3022,6 +3071,7 @@ async function musUse(raw){
     }
     MUS.src = prov; MUS.url = url; MUS.savedUrl = url;
     $("#mixForget").classList.remove("hide");
+    libAdd(url, prov, MUS.name, MUS.by);
     musSave();
   }catch(e){ MUS.err = e.message || String(e); MUS.ready = false; }
   musShowPlayer(MUS.ready);
@@ -3071,165 +3121,6 @@ $("#mixAlign").classList.add("on");
 musRender();
 
 /* =========================================================
-   15. SHARE A SESSION
-
-   No backend and no accounts, so the whole session travels in the
-   URL fragment: format, physique goal, equipment, the exact timings
-   and the exact station list, plus the music link and its options.
-   A fragment never reaches a server, which suits a file that is
-   otherwise entirely offline.
-
-   The intake profile is deliberately NOT shared. Name, sore joints
-   and level are personal to the sender, and applying one person's
-   injuries to another is worse than useless. The station list still
-   arrives exactly as built, so the session is the same either way.
-
-   Stations ride as indices into LIB with a fingerprint of the
-   library alongside. If the recipient is on a build whose LIB
-   differs, the indices would point at the wrong exercises, so the
-   fingerprint check fails closed: preferences still apply and the
-   stations are regenerated from them.
-   ========================================================= */
-const SHARE_V = 2;          // v1 packed the old bw/dbkb/machine equipment
-
-function libFingerprint(){
-  const s = LIB.map(x => x.n).join("|");
-  let h = 5381;
-  for (let i = 0; i < s.length; i++) h = ((h*33) ^ s.charCodeAt(i)) >>> 0;
-  return (LIB.length * 1e6 + (h % 1e6));
-}
-function b64e(str){
-  const b = new TextEncoder().encode(str);
-  let s = ""; for (const c of b) s += String.fromCharCode(c);
-  return btoa(s).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
-}
-function b64d(str){
-  const s = str.replace(/-/g,"+").replace(/_/g,"/");
-  const bin = atob(s + "=".repeat((4 - s.length % 4) % 4));
-  return new TextDecoder().decode(Uint8Array.from(bin, c => c.charCodeAt(0)));
-}
-
-const SHARE_KIT = ["db","kb","bench","box"];   // bodyweight is always in
-
-function sharePayload(){
-  const w = S.workout, c = S.cfg;
-  let eq = 0;
-  SHARE_KIT.forEach((k,i) => { if (S.equip[k]) eq |= (1 << i); });
-  return {
-    v: SHARE_V,
-    p: S.presetId, g: S.goalId, e: eq,
-    c: [c.warmup, c.halftime, c.cooldown],
-    h: c.halves.map(h => [h.stations, h.work, h.rest, h.rounds, h.focus]),
-    s: w ? w.halves.map(h => h.list.map(ex => LIB.findIndex(x => x.n === ex.n))) : [],
-    f: libFingerprint(),
-    m: MUS.url || MUS.savedUrl || "",
-    mo: { p: MUS.perStation, c: MUS.pct, s: MUS.shuffle, a: MUS.align }
-  };
-}
-function shareLink(){
-  return location.origin + location.pathname + "#w=" + b64e(JSON.stringify(sharePayload()));
-}
-function shareDecode(enc){
-  try{
-    const d = JSON.parse(b64d(enc));
-    if (!d || d.v !== SHARE_V || !Array.isArray(d.h) || !d.h.length) return null;
-    return d;
-  }catch(e){ return null; }
-}
-
-/* Apply an incoming session. Music is deliberately NOT loaded here:
-   a link from someone else is not the recipient's consent to hit the
-   network, so the link is only prefilled and waits for a tap. That
-   keeps the "nothing fetched on a cold load" promise intact. */
-function applyShared(d){
-  if (PRESETS.some(p => p.id === d.p)) S.presetId = d.p;
-  if (goalById(d.g)){ S.goalId = d.g; S.goalShift = goalById(d.g).shift; }
-  SHARE_KIT.forEach((k,i) => { S.equip[k] = !!(d.e & (1 << i)); });
-
-  S.cfg = {
-    warmup:   +d.c[0] || 0,
-    halftime: +d.c[1] || 0,
-    cooldown: +d.c[2] || 0,
-    halves:   d.h.map(a => ({ stations:+a[0], work:+a[1], rest:+a[2], rounds:+a[3], focus:a[4] }))
-  };
-
-  const exact = d.f === libFingerprint()
-             && Array.isArray(d.s) && d.s.length === S.cfg.halves.length
-             && d.s.every((l,i) => Array.isArray(l) && l.length === S.cfg.halves[i].stations
-                                && l.every(k => k >= 0 && k < LIB.length));
-  if (exact){
-    const w = clone(S.cfg);
-    w.halves.forEach((h,i) => { h.list = d.s[i].map(k => LIB[k]); });
-    S.workout = w;
-  } else {
-    generateWorkout();
-  }
-
-  if (d.m && musProvider(d.m)){
-    const o = d.mo || {};
-    if (typeof o.c === "number") MUS.pct = o.c;
-    MUS.perStation = o.p !== false;
-    MUS.shuffle    = o.s !== false;
-    MUS.align      = o.a !== false;
-    MUS.savedUrl   = d.m;
-    const flag = (el, on) => { if (!el) return; el.textContent = on ? "On" : "Off"; el.classList.toggle("on", on); };
-    if ($("#mixUrl"))    $("#mixUrl").value = d.m;
-    if ($("#mixPct"))    $("#mixPct").value = MUS.pct;
-    if ($("#mixForget")) $("#mixForget").classList.remove("hide");
-    flag($("#mixPer"), MUS.perStation);
-    flag($("#mixShuffle"), MUS.shuffle);
-    flag($("#mixAlign"), MUS.align);
-    if (!MUS.ready){
-      MUS.on = true;
-      flag($("#mToggle"), true);
-      if ($("#mBody"))   $("#mBody").classList.remove("hide");
-      if ($("#secMusic")) $("#secMusic").open = true;
-    }
-    musRender();
-  }
-
-  renderPresets(); renderGoals(); renderEquip(); renderConfig();
-  if (typeof renderIEquip === "function") renderIEquip();
-  renderPreview();
-  const note = $("#sharedbanner");
-  if (note){
-    note.textContent = exact
-      ? (d.m ? "Someone shared this session with you. Their mix is loaded below — tap Load in Music to play it."
-             : "Someone shared this session with you.")
-      : "Someone shared their settings with you. Their exact stations came from a different version of the app, so these were generated fresh.";
-    note.classList.remove("hide");
-  }
-  show("preview");
-}
-
-function shareBoot(){
-  const m = String(location.hash || "").match(/[#&]w=([A-Za-z0-9\-_]+)/);
-  if (!m) return false;
-  const d = shareDecode(m[1]);
-  if (!d) return false;
-  applyShared(d);
-  try{ history.replaceState(null, "", location.pathname + location.search); }catch(e){}
-  return true;
-}
-
-async function doShare(){
-  const url = shareLink();
-  const msg = $("#sharemsg");
-  const say = t => { if (msg){ msg.textContent = t; msg.classList.remove("hide"); } };
-  const text = "Do this " + mmss(totalSeconds(S.workout)) + " STATIONS session with me — same stations, same mix.";
-  if (navigator.share){
-    try{ await navigator.share({ title:"STATIONS", text, url }); return; }
-    catch(e){ if (e && e.name === "AbortError") return; }   // they backed out; not an error
-  }
-  try{
-    await navigator.clipboard.writeText(url);
-    say("Link copied — send it to whoever you're training with.");
-  }catch(e){
-    say("Couldn't copy automatically. Link: " + url);
-  }
-}
-
-/* =========================================================
    12. BOOT
    ========================================================= */
 S.cfg = cfgFor(PRESETS[0], goalById(S.goalId));
@@ -3237,15 +3128,10 @@ S.goalShift = goalById(S.goalId).shift;
 renderPresets(); renderGoals(); renderEquip(); renderConfig();
 profLoad(); histLoad(); histHomeBadge(); renderEquip();
 // #mixwrap lives after this script, so wait for the full document
-function bootMusicAndShare(){
-  musRestore();
-  // an incoming link wins over the home screen, but only once the music
-  // controls exist for it to prefill
-  if (!shareBoot()) show("home");
-}
-if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", bootMusicAndShare);
-else bootMusicAndShare();
+if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", musRestore);
+else musRestore();
 if (window.matchMedia("(min-width:721px)").matches) $("#secStructure").open = true;
+show("home");
 </script>
 <div id="mixwrap" class="hide"><div id="mixplayer"></div></div>
 </body>
