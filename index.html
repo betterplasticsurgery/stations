@@ -89,7 +89,7 @@ input,select{font-family:inherit}
 @keyframes hfade{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
 @keyframes hpop{from{opacity:0;transform:scale(.55)}to{opacity:1;transform:scale(1)}}
 @media(prefers-reduced-motion:reduce){
-  .hlogo,.hmark,.htag,.hslot,.hop,.hkey,.hcta,.hnote,.ighome{animation-duration:.01s !important;animation-delay:0s !important}
+  .hlogo,.hmark,.htag,.hslot,.hop,.hkey,.hcta,.hnote,.ighome,.hstreak{animation-duration:.01s !important;animation-delay:0s !important}
 }
 
 /* ---------- header ---------- */
@@ -160,6 +160,32 @@ details.sec[open] > summary{border-bottom:1px solid var(--line)}
 .phys .ds{font-size:11.5px;color:var(--dim2);line-height:1.4;margin-top:3px}
 .phys.on .ds{color:var(--dim)}
 .hint{font-size:12px;color:var(--dim2);line-height:1.55;margin:9px 2px 0}
+
+/* ---------- history ---------- */
+.hstreak{
+  display:inline-flex;align-items:center;gap:8px;margin-top:14px;padding:9px 15px;
+  border:1px solid var(--line);background:var(--panel);border-radius:999px;
+  font-size:12.5px;color:var(--dim);font-weight:650;cursor:pointer;transition:.14s;
+  opacity:0;animation:hfade .7s ease forwards 2.75s
+}
+.hstreak:hover{color:var(--txt);border-color:#3a3a42}
+.hstreak b{color:#fff;font-weight:800}
+.rpe{margin-top:28px;padding-top:20px;border-top:1px solid var(--line)}
+.rpe .q{font-size:13px;color:var(--dim);margin-bottom:11px}
+.rpe .btnrow{flex-wrap:nowrap;gap:8px}
+.rpe .btnrow .btn{flex:1 1 0 !important;min-width:0;font-size:13px;padding:13px 6px}
+.rpe .btn.on{border-color:var(--ink);color:var(--ink);background:#141417}
+.rpe.done .q{color:var(--dim2)}
+.hrow{
+  display:flex;align-items:center;gap:12px;background:var(--panel);
+  border:1px solid var(--line);border-radius:12px;padding:12px 13px
+}
+.hrow .hd{flex:1;min-width:0}
+.hrow .h1{font-size:14px;font-weight:700;line-height:1.3}
+.hrow .h2{font-size:12px;color:var(--dim2);margin-top:3px;font-family:var(--mono)}
+.hrow .hf{font-size:9.5px;letter-spacing:1.1px;text-transform:uppercase;font-weight:800;
+  padding:4px 7px;border-radius:5px;background:#1d1d21;color:var(--dim);white-space:nowrap}
+.hempty{text-align:center;padding:44px 20px;color:var(--dim2);font-size:13.5px;line-height:1.6}
 
 /* ---------- instagram ---------- */
 .iglink{
@@ -278,9 +304,13 @@ body.mixon #setup{padding-bottom:calc(var(--mixh) + 104px)}
 #run .icons{display:flex;gap:6px}
 #run .icons button{width:40px;height:40px;border-radius:11px;background:#ffffff10;display:grid;place-items:center;font-size:15px;filter:grayscale(1)}
 #run .icons button.off{opacity:.35}
-.bar{height:11px;background:#ffffff14;position:relative}
-.bar i{position:absolute;inset:0 auto 0 0;background:var(--ink);transition:width .25s linear}
-@media(max-height:680px){.bar{height:8px}}
+.bar{height:20px;background:#ffffff12;position:relative;overflow:hidden}
+.bar i{position:absolute;inset:0 auto 0 0;background:var(--ink);transition:width .25s linear;z-index:1}
+/* one tick per station, so the height buys you information rather than
+   just a thicker line — you can see where you are at a glance */
+.bar u{position:absolute;top:0;bottom:0;width:1px;background:#00000055;z-index:2}
+.bar i:after{content:"";position:absolute;right:0;top:0;bottom:0;width:2px;background:#fff;box-shadow:0 0 10px #fff}
+@media(max-height:680px){.bar{height:14px}}
 .stage{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:16px 22px;min-height:0}
 .phase{font-size:12px;letter-spacing:4px;text-transform:uppercase;font-weight:800;color:var(--dim);margin-bottom:10px}
 #run.hasfig .phase{margin-bottom:2px}
@@ -402,6 +432,7 @@ body.mixon .foot{display:none}
 
     <div class="hcta"><button class="btn primary wide" id="homego">Build my session</button></div>
     <p class="hnote">45 minutes · two halves · no account, no sign-in</p>
+    <button class="hstreak hide" id="hstreak"></button>
     <a class="iglink ighome" href="https://www.instagram.com/stationsfitapp/" target="_blank" rel="noopener">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <rect x="2.6" y="2.6" width="18.8" height="18.8" rx="5.4"/>
@@ -596,10 +627,19 @@ body.mixon .foot{display:none}
       <div class="stat"><div class="v" id="dWork">—</div><div class="k">Work time</div></div>
       <div class="stat"><div class="v" id="dSets">—</div><div class="k">Station sets</div></div>
     </div>
-    <div class="btnrow" style="justify-content:center">
+    <div class="rpe" id="rpeRow">
+      <div class="q">How did that feel?</div>
+      <div class="btnrow">
+        <button class="btn rpeBtn" data-r="0">Too easy</button>
+        <button class="btn rpeBtn" data-r="1">About right</button>
+        <button class="btn rpeBtn" data-r="2">Too much</button>
+      </div>
+    </div>
+    <div class="btnrow" style="justify-content:center;margin-top:22px">
       <button class="btn primary" id="again">Run it again</button>
       <button class="btn" id="newone">Build a new one</button>
     </div>
+    <button class="linkbtn" id="toHistory" style="margin-top:16px">See your history</button>
     <div style="margin-top:26px">
       <a class="iglink" href="https://www.instagram.com/stationsfitapp/" target="_blank" rel="noopener">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -610,6 +650,33 @@ body.mixon .foot{display:none}
       </a>
     </div>
   </div>
+</div>
+
+<!-- ================= HISTORY ================= -->
+<div id="history" class="wrap hide">
+  <div class="topnav">
+    <button class="backlink" id="histBack" title="Back">←</button>
+    <div class="brand" style="margin:0"><h1>Your <span>history</span></h1></div>
+  </div>
+
+  <div class="stats" id="histStats">
+    <div class="stat"><div class="v" id="hSessions">0</div><div class="k">Sessions</div></div>
+    <div class="stat"><div class="v" id="hStreak">0</div><div class="k">Day streak</div></div>
+    <div class="stat"><div class="v" id="hWork">0m</div><div class="k">Work time</div></div>
+  </div>
+
+  <div class="section" id="histWrap">
+    <h2>Recent sessions</h2>
+    <div class="stlist" id="histList"></div>
+  </div>
+
+  <div class="hempty hide" id="histEmpty">
+    No sessions yet.<br>Finish one and it will show up here.
+  </div>
+
+  <p class="note">Kept on this device only — nothing is uploaded and there is no account.
+    <button class="linkbtn" id="histClear" style="display:block;margin-top:10px">Clear history</button>
+  </p>
 </div>
 
 <script>
@@ -1708,6 +1775,79 @@ function renderPreview(){
 }
 
 /* =========================================================
+   8b. HISTORY
+   Completed sessions, kept on the device. No account, no upload —
+   same contract as the saved mix link. Every localStorage call is
+   wrapped: private browsing throws, and losing history must never
+   take the workout down with it.
+   ========================================================= */
+const HISTKEY = "stations.history.v1";
+const HIST = { list: [], cur: null, from: "home" };
+
+function histLoad(){
+  try{
+    const d = JSON.parse(localStorage.getItem(HISTKEY) || "null");
+    HIST.list = (d && Array.isArray(d.sessions)) ? d.sessions : [];
+  }catch(e){ HIST.list = []; }
+}
+function histSave(){
+  try{ localStorage.setItem(HISTKEY, JSON.stringify({ v:1, sessions: HIST.list.slice(-300) })); }
+  catch(e){}
+}
+function histAdd(rec){ HIST.list.push(rec); histSave(); return rec; }
+
+const dayKey = ms => { const d = new Date(ms);
+  return d.getFullYear() + "-" + (d.getMonth()+1) + "-" + d.getDate(); };
+
+/* Consecutive days with at least one session. Today not being done yet
+   shouldn't break a streak, so it may anchor on yesterday. */
+function histStreak(){
+  if (!HIST.list.length) return 0;
+  const days = new Set(HIST.list.map(x => dayKey(x.t)));
+  const d = new Date();
+  if (!days.has(dayKey(d.getTime()))) d.setDate(d.getDate() - 1);
+  let n = 0;
+  while (days.has(dayKey(d.getTime()))){ n++; d.setDate(d.getDate() - 1); }
+  return n;
+}
+function hoursMins(sec){
+  sec = Math.max(0, Math.round(sec));
+  const h = Math.floor(sec/3600), m = Math.round((sec%3600)/60);
+  return h ? h + "h " + m + "m" : m + "m";
+}
+const RPE_LABEL = ["Too easy", "About right", "Too much"];
+
+function histRender(){
+  const n = HIST.list.length;
+  $("#hSessions").textContent = n;
+  $("#hStreak").textContent = histStreak();
+  $("#hWork").textContent = hoursMins(HIST.list.reduce((a,x)=>a+(x.work||0),0));
+  $("#histWrap").classList.toggle("hide", !n);
+  $("#histEmpty").classList.toggle("hide", !!n);
+  $("#histList").innerHTML = HIST.list.slice().reverse().slice(0,60).map(x => {
+    const d = new Date(x.t);
+    const when = d.toLocaleDateString(undefined, {weekday:"short", day:"numeric", month:"short"});
+    const bits = [mmss(x.total||0), (x.sets||0) + " sets"];
+    if (x.rpe != null && RPE_LABEL[x.rpe]) bits.push(RPE_LABEL[x.rpe]);
+    return '<div class="hrow"><div class="hd">' +
+      '<div class="h1">' + when + '</div>' +
+      '<div class="h2">' + bits.join("  ·  ") + '</div>' +
+      '</div><span class="hf">' + (x.preset || "Custom") + '</span></div>';
+  }).join("");
+}
+
+/* A small nudge on the home screen once there is anything to show. */
+function histHomeBadge(){
+  const el = $("#hstreak"); if (!el) return;
+  const n = HIST.list.length;
+  el.classList.toggle("hide", !n);
+  if (!n) return;
+  const st = histStreak();
+  el.innerHTML = "<b>" + n + "</b> session" + (n===1?"":"s") +
+                 (st > 1 ? "  ·  <b>" + st + "</b> day streak" : "");
+}
+
+/* =========================================================
    9. AUDIO + SCREEN WAKE
    ========================================================= */
 function beep(freq, dur, vol){
@@ -1746,11 +1886,27 @@ document.addEventListener("visibilitychange", () => {
    10. RUN LOOP
    ========================================================= */
 function show(id){
-  ["home","setup","preview","run","done"].forEach(x => $("#"+x).classList.toggle("hide", x!==id));
+  ["home","setup","preview","run","done","history"].forEach(x => $("#"+x).classList.toggle("hide", x!==id));
   $("#setupbar").classList.toggle("hide", id!=="setup");
   if (id === "home") homeFigStart(); else homeFigStop();
   // canvases measure 0 while the screen is display:none — paint once it's up
   if (id === "setup") requestAnimationFrame(paintPhysiques);
+}
+
+/* A tick at every work segment boundary. Built once when the session
+   starts, since the timeline never changes mid-run. */
+function paintTicks(){
+  const bar = $(".bar"), total = S.segs.total;
+  $$(".bar u").forEach(u => u.remove());
+  if (!total) return;
+  const frag = document.createDocumentFragment();
+  S.segs.forEach(seg => {
+    if (seg.type !== "work" || seg.start <= 0) return;
+    const u = document.createElement("u");
+    u.style.left = (100*seg.start/total).toFixed(3) + "%";
+    frag.appendChild(u);
+  });
+  bar.appendChild(frag);
 }
 
 function startWorkout(){
@@ -1758,6 +1914,7 @@ function startWorkout(){
   if (!S.segs.length){ alert("This workout has no segments — add some stations or time."); return; }
   S.idx = 0;
   show("run");
+  paintTicks();
   keepAwake(true);
   musicStart();
   beep(880, .12);
@@ -1843,9 +2000,27 @@ function finish(){
   beep(660,.16); setTimeout(()=>beep(880,.16),170); setTimeout(()=>beep(1320,.35),340);
   say("Session complete. Well done.");
   const work = S.segs.filter(s=>s.type==="work");
+  const workSec = work.reduce((a,s)=>a+s.dur,0);
   $("#dTime").textContent = mmss(S.segs.total);
-  $("#dWork").textContent = mmss(work.reduce((a,s)=>a+s.dur,0));
+  $("#dWork").textContent = mmss(workSec);
   $("#dSets").textContent = work.length;
+
+  const preset = PRESETS.find(x => x.id === S.presetId);
+  const goal = goalById(S.goalId);
+  HIST.cur = histAdd({
+    t: Date.now(),
+    preset: preset ? preset.name : "Custom",
+    goal: goal ? goal.name : null,
+    total: S.segs.total,
+    work: workSec,
+    sets: work.length,
+    ex: [...new Set(work.map(s => s.label))],
+    rpe: null
+  });
+  $("#rpeRow").classList.remove("done");
+  $$("#rpeRow .rpeBtn").forEach(b => b.classList.remove("on"));
+  histHomeBadge();
+
   show("done");
 }
 function quitRun(){
@@ -1869,6 +2044,31 @@ $("#prev").onclick = () => { S.idx = Math.max(0, S.idx-1); enterSeg(false); };
 $("#quit").onclick = quitRun;
 $("#again").onclick = () => startWorkout();
 $("#newone").onclick = () => show("setup");
+function openHistory(from){ HIST.from = from; histRender(); show("history"); }
+$("#toHistory").onclick = () => openHistory("done");
+$("#hstreak").onclick   = () => openHistory("home");
+$("#histBack").onclick  = () => show(HIST.from || "home");
+$$("#rpeRow .rpeBtn").forEach(b => b.onclick = () => {
+  if (!HIST.cur) return;
+  HIST.cur.rpe = +b.dataset.r;
+  histSave();
+  $$("#rpeRow .rpeBtn").forEach(x => x.classList.toggle("on", x === b));
+  $("#rpeRow").classList.add("done");
+});
+let clearArmed = 0;
+$("#histClear").onclick = () => {
+  if (!HIST.list.length) return;
+  const btn = $("#histClear");
+  if (!clearArmed){
+    clearArmed = 1; btn.textContent = "Tap again to delete everything";
+    setTimeout(() => { if (clearArmed){ clearArmed = 0; btn.textContent = "Clear history"; } }, 4000);
+    return;
+  }
+  clearArmed = 0; btn.textContent = "Clear history";
+  HIST.list = []; HIST.cur = null;
+  try{ localStorage.removeItem(HISTKEY); }catch(e){}
+  histRender(); histHomeBadge();
+};
 $("#tSound").onclick = () => { S.sound = !S.sound; $("#tSound").classList.toggle("off", !S.sound); if(S.sound) beep(880,.1); };
 $("#tVoice").onclick = () => { S.voice = !S.voice; $("#tVoice").classList.toggle("off", !S.voice); if(!S.voice){try{speechSynthesis.cancel()}catch(e){}} };
 document.addEventListener("keydown", e => {
@@ -2335,6 +2535,7 @@ musRender();
 S.cfg = cfgFor(PRESETS[0], goalById(S.goalId));
 S.goalShift = goalById(S.goalId).shift;
 renderPresets(); renderGoals(); renderEquip(); renderConfig();
+histLoad(); histHomeBadge();
 // #mixwrap lives after this script, so wait for the full document
 if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", musRestore);
 else musRestore();
