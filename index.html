@@ -337,7 +337,7 @@ select.sel{
 .stickybar .sbv{font-family:var(--mono);font-size:21px;font-weight:800;letter-spacing:-.5px;margin-top:1px}
 .stickybar .btn{flex:1;margin-left:auto;max-width:60%}
 #setup{padding-bottom:104px}
-body.mixon .stickybar{bottom:var(--mixh);padding-bottom:11px}
+body.mixon .stickybar{bottom:calc(var(--mixh) - 1px);padding-bottom:11px;background:#000}
 @media(min-width:860px){
   .stickybar{padding-left:calc((100vw - 820px)/2 + 18px);padding-right:calc((100vw - 820px)/2 + 18px)}
   .stickybar .btn{max-width:240px}
@@ -430,7 +430,7 @@ textarea.mtx:focus{border-color:#3a3a42}
 .mixname{font-size:14.5px;font-weight:750;line-height:1.3}
 .mixby{font-size:12.5px;color:var(--dim);margin-top:2px}
 .mixmeta{font-size:11.5px;color:var(--dim2);margin-top:5px;font-family:var(--mono)}
-#mixwrap{position:fixed;left:0;right:0;bottom:0;z-index:60;background:rgba(0,0,0,.94);
+#mixwrap{position:fixed;left:0;right:0;bottom:0;z-index:60;background:#000;
   border-top:1px solid var(--line);padding:7px 10px calc(7px + env(safe-area-inset-bottom))}
 #mixplayer iframe{display:block;border-radius:9px;background:#000}
 body.mixon .wrap{padding-bottom:190px}
@@ -3015,10 +3015,34 @@ function musicStop(){
   /* the player itself stays mounted and visible while a mix is loaded —
      both SoundCloud and Mixcloud require a visible widget for their API */
 }
+/* The player's height depends on the provider and the viewport — the
+   SoundCloud and Mixcloud iframes are not the same size, and neither
+   matches whatever constant we guess. Measure it and pin the sticky
+   bar to the real number, or the page shows through the gap between
+   the two. */
+function syncMixHeight(){
+  const el = $("#mixwrap");
+  if (!el || el.classList.contains("hide")){
+    document.documentElement.style.setProperty("--mixh", "0px");
+    return;
+  }
+  const h = Math.ceil(el.getBoundingClientRect().height);
+  if (h > 0) document.documentElement.style.setProperty("--mixh", h + "px");
+}
+let mixRO = null;
 function musShowPlayer(on){
   $("#mixwrap").classList.toggle("hide", !on);
   document.body.classList.toggle("mixon", !!on);
+  syncMixHeight();
+  // the iframe arrives late and can resize itself afterwards
+  if (on && !mixRO && window.ResizeObserver){
+    mixRO = new ResizeObserver(syncMixHeight);
+    mixRO.observe($("#mixwrap"));
+  }
+  if (on) setTimeout(syncMixHeight, 400);
 }
+window.addEventListener("resize", syncMixHeight);
+window.addEventListener("orientationchange", () => setTimeout(syncMixHeight, 250));
 
 /* ---------------- setup UI ---------------- */
 function musRender(){
