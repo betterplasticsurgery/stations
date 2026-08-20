@@ -116,32 +116,49 @@ textarea{width:100%;min-height:96px;background:var(--panel2);border:1px solid va
       nothing goes through a server, so there's no account and no cost. Swap the two codes
       below by any means you like: message, email, read them out.</p>
 
-    <h2>The session</h2>
-    <div class="cfg">
-      <div class="fld"><label>Stations</label><input id="cStations" type="number" value="6" min="1" max="20"></div>
-      <div class="fld"><label>Work</label><input id="cWork" type="number" value="40" min="5" max="300"></div>
-      <div class="fld"><label>Rest</label><input id="cRest" type="number" value="20" min="0" max="300"></div>
-    </div>
-    <p class="note">Whoever starts the call sets these; they travel to the other person.</p>
-
-    <h2>Start a call</h2>
-    <div class="step">
-      <div class="n">You go first</div>
-      <button class="btn primary" id="mkOffer">Create an invite code</button>
-      <textarea id="offerOut" class="hide" readonly placeholder="your invite code"></textarea>
-      <button class="btn hide" id="copyOffer" style="margin-top:8px">Copy invite code</button>
-      <div class="n" style="margin-top:16px">Then paste their reply</div>
-      <textarea id="answerIn" placeholder="paste the reply code here"></textarea>
-      <button class="btn" id="useAnswer" style="margin-top:8px">Connect</button>
+    <div id="pick">
+      <h2>Who's starting?</h2>
+      <button class="btn primary" id="modeHost" style="margin-bottom:10px">I'll start the call</button>
+      <button class="btn" id="modeGuest">I'm joining their call</button>
+      <p class="note">One of you starts, the other joins. You'll swap two codes — it takes a minute.</p>
     </div>
 
-    <h2>Or join one</h2>
-    <div class="step">
-      <div class="n">Paste their invite code</div>
-      <textarea id="offerIn" placeholder="paste the invite code here"></textarea>
-      <button class="btn" id="mkAnswer" style="margin-top:8px">Create a reply code</button>
-      <textarea id="answerOut" class="hide" readonly placeholder="your reply code"></textarea>
-      <button class="btn hide" id="copyAnswer" style="margin-top:8px">Copy reply code</button>
+    <div id="hostFlow" class="hide">
+      <h2>You're starting the call</h2>
+      <div class="cfg">
+        <div class="fld"><label>Stations</label><input id="cStations" type="number" value="6" min="1" max="20"></div>
+        <div class="fld"><label>Work</label><input id="cWork" type="number" value="40" min="5" max="300"></div>
+        <div class="fld"><label>Rest</label><input id="cRest" type="number" value="20" min="0" max="300"></div>
+      </div>
+      <div class="step">
+        <div class="n">Step 1 — make your code</div>
+        <button class="btn primary" id="mkOffer">Create an invite code</button>
+        <textarea id="offerOut" class="hide" readonly></textarea>
+        <button class="btn hide" id="copyOffer" style="margin-top:8px">Copy — then send it to them</button>
+      </div>
+      <div class="step">
+        <div class="n">Step 2 — paste what they send back</div>
+        <p class="note" style="margin:0 0 10px">They tap <b>I'm joining their call</b> and send you a <b>reply code</b>.</p>
+        <textarea id="answerIn" placeholder="paste their reply code here"></textarea>
+        <button class="btn primary" id="useAnswer" style="margin-top:8px">Connect</button>
+      </div>
+      <button class="btn" id="backHost">Back</button>
+    </div>
+
+    <div id="guestFlow" class="hide">
+      <h2>You're joining their call</h2>
+      <div class="step">
+        <div class="n">Step 1 — paste the invite code they sent you</div>
+        <textarea id="offerIn" placeholder="paste their invite code here"></textarea>
+        <button class="btn primary" id="mkAnswer" style="margin-top:8px">Create a reply code</button>
+      </div>
+      <div class="step">
+        <div class="n">Step 2 — send this back to them</div>
+        <textarea id="answerOut" class="hide" readonly></textarea>
+        <button class="btn hide" id="copyAnswer" style="margin-top:8px">Copy — then send it to them</button>
+        <p class="note" id="guestWait" style="margin:10px 0 0">Once they paste it and tap Connect, you'll both be in.</p>
+      </div>
+      <button class="btn" id="backGuest">Back</button>
     </div>
 
     <div class="stat" id="stat">Camera not started</div>
@@ -396,6 +413,17 @@ const copyTo = async (el, btn) => {
   catch(_){ el.select(); document.execCommand("copy"); }
   const o = btn.textContent; btn.textContent = "Copied"; setTimeout(()=>btn.textContent=o, 1400);
 };
+function mode(which){
+  $("#pick").classList.toggle("hide", which !== null);
+  $("#hostFlow").classList.toggle("hide", which !== "host");
+  $("#guestFlow").classList.toggle("hide", which !== "guest");
+  if (which) startMedia().catch(e => say("Camera blocked: " + e.message, true));
+}
+$("#modeHost").onclick  = () => mode("host");
+$("#modeGuest").onclick = () => mode("guest");
+$("#backHost").onclick  = () => mode(null);
+$("#backGuest").onclick = () => mode(null);
+
 $("#selftest").onclick = async () => {
   try{ await startMedia(); await playVideo($("#near")); }
   catch(e){ say("Camera blocked: " + e.message + " — check the site has camera permission, and that the page is on https", true); }
