@@ -11,11 +11,15 @@ const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..")
 let pass = 0, fail = 0;
 const ok  = (n, c, extra="") => { c ? (pass++, console.log("  ok   " + n)) : (fail++, console.log("  FAIL " + n + (extra?"  — "+extra:""))); };
 
+const MIME = { ".html":"text/html", ".css":"text/css", ".js":"text/javascript",
+               ".xml":"application/xml", ".png":"image/png", ".txt":"text/plain" };
 function serve(){
   const s = http.createServer((req,res) => {
-    const f = path.join(ROOT, (req.url.split("?")[0] === "/" ? "/index.html" : req.url.split("?")[0]).split("#")[0]);
+    let p0 = req.url.split("?")[0].split("#")[0];
+    let f = path.join(ROOT, p0 === "/" ? "/index.html" : p0);
+    if (fs.existsSync(f) && fs.statSync(f).isDirectory()) f = path.join(f, "index.html");
     if (!f.startsWith(ROOT) || !fs.existsSync(f)){ res.writeHead(404); res.end(); return; }
-    res.writeHead(200, {"Content-Type": f.endsWith(".html") ? "text/html" : "text/plain"});
+    res.writeHead(200, {"Content-Type": MIME[path.extname(f)] || "text/plain"});
     res.end(fs.readFileSync(f));
   });
   return new Promise(r => s.listen(0,"127.0.0.1",()=>r({ port:s.address().port, close:()=>new Promise(q=>s.close(q)) })));
@@ -114,6 +118,60 @@ console.log("\ndeployed relay");
   const url = await p.evaluate(() => DUO_RELAY);
   ok("DUO_RELAY is filled in", /^https:\/\/.+/.test(url), url);
   ok("and is not a placeholder", !/<|your-worker|example/.test(url), url);
+  await ctx.close();
+}
+
+/* ---- the landing pages ---- */
+console.log("\nlanding pages");
+{
+  const ctx = await browser.newContext();
+  for (const slug of ["interval-timer","hiit-timer","tabata-timer"]){
+    const p = await ctx.newPage();
+    const errs = [];
+    p.on("pageerror", e => errs.push(e.message));
+    await p.goto(`http://127.0.0.1:${site.port}/${slug}/`, { waitUntil:"networkidle" });
+
+    const meta = await p.evaluate(() => ({
+      h1: (document.querySelector("h1") || {}).textContent || "",
+      desc: (document.querySelector('meta[name="description"]') || {}).content || "",
+      canon: (document.querySelector('link[rel="canonical"]') || {}).href || "",
+      words: document.body.innerText.trim().split(/\s+/).length,
+      faqs: document.querySelectorAll("details").length,
+      ld: (() => { try { return JSON.parse(
+            document.querySelector('script[type="application/ld+json"]').textContent
+          ); } catch(e){ return null; } })()
+    }));
+    ok(`${slug}: no page errors`, errs.length === 0, errs.join(" | "));
+    ok(`${slug}: has an h1`, meta.h1.length > 4, meta.h1);
+    ok(`${slug}: has a description`, meta.desc.length > 60);
+    ok(`${slug}: canonical points at stations.fit`, /^https:\/\/stations\.fit\//.test(meta.canon), meta.canon);
+    ok(`${slug}: enough real copy to rank`, meta.words > 350, meta.words + " words");
+    ok(`${slug}: FAQ schema matches the visible FAQ`,
+       meta.ld && meta.ld["@type"] === "FAQPage" && meta.ld.mainEntity.length === meta.faqs,
+       `${meta.ld && meta.ld.mainEntity.length} in schema vs ${meta.faqs} on page`);
+
+    /* the point of these pages is that they are a working tool, not an article */
+    const before = await p.textContent("#t .t-clock");
+    await p.click(".t-go");
+    await p.waitForTimeout(2200);
+    const after = await p.textContent("#t .t-clock");
+    ok(`${slug}: the timer actually counts down`, before !== after, `${before} -> ${after}`);
+    await p.click(".t-reset");
+    ok(`${slug}: reset returns it to the start`, (await p.textContent("#t .t-clock")) === before);
+    await p.close();
+  }
+  await ctx.close();
+}
+
+/* the sitemap must list every page that exists, and nothing that does not */
+{
+  const ctx = await browser.newContext();
+  const p = await ctx.newPage();
+  await p.goto(`http://127.0.0.1:${site.port}/sitemap.xml`);
+  const xml = await p.content();
+  for (const u of ["https://stations.fit/", "https://stations.fit/interval-timer/",
+                   "https://stations.fit/hiit-timer/", "https://stations.fit/tabata-timer/"])
+    ok(`sitemap lists ${u}`, xml.includes(u));
   await ctx.close();
 }
 
