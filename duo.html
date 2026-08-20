@@ -25,7 +25,7 @@ button{font-family:inherit;cursor:pointer;border:none;background:none;color:inhe
     radial-gradient(115% 75% at 50% 42%, rgba(0,0,0,.22) 0%, rgba(0,0,0,.66) 62%, rgba(0,0,0,.86) 100%),
     linear-gradient(180deg, rgba(0,0,0,.55) 0%, rgba(0,0,0,0) 22%, rgba(0,0,0,0) 66%, rgba(0,0,0,.62) 100%)}
 #near{position:fixed;right:14px;bottom:calc(84px + env(safe-area-inset-bottom));width:96px;height:138px;
-  object-fit:cover;border-radius:14px;border:1px solid #ffffff2e;z-index:4;background:#111;transform:scaleX(-1)}
+  object-fit:cover;border-radius:14px;border:1px solid #ffffff2e;z-index:12;background:#111;transform:scaleX(-1)}
 
 .stage{position:fixed;inset:0;z-index:3;display:flex;flex-direction:column;
   align-items:center;justify-content:center;text-align:center;padding:20px}
@@ -99,6 +99,8 @@ textarea{width:100%;min-height:96px;background:var(--panel2);border:1px solid va
 </div>
 
 <video id="near" autoplay playsinline muted></video>
+<button id="tapplay" class="hide" style="position:fixed;inset:0;z-index:9;background:#000000cc;
+  color:#fff;font-size:16px;font-weight:750">Tap to show video</button>
 
 <div class="ctrls hide" id="ctrls">
   <button id="toggle" class="go">Start</button>
@@ -143,6 +145,8 @@ textarea{width:100%;min-height:96px;background:var(--panel2);border:1px solid va
     </div>
 
     <div class="stat" id="stat">Camera not started</div>
+    <div class="stat" id="diag" style="color:var(--dim2)"></div>
+    <button class="btn" id="selftest" style="margin-top:10px">Test my camera</button>
     <p class="note">Peer to peer works for most connections. Some mobile networks and office
       firewalls block it — that's the case a relay server would cover, and this prototype
       deliberately has none.</p>
@@ -184,6 +188,33 @@ const S = { running:false, idx:0, endAt:0, remain:0, timer:null, segs:[] };
 
 const say = (t, bad) => { const el = $("#stat"); el.textContent = t; el.className = "stat" + (bad?" bad":""); };
 
+/* Without this there is nothing to go on when a call fails to come up —
+   "camera light on, no picture" covers half a dozen different faults. */
+function diag(){
+  const pc = P.pc;
+  const bits = [
+    "media:" + (P.local ? "on" : "off"),
+    pc ? "conn:" + pc.connectionState : "conn:—",
+    pc ? "ice:" + pc.iceConnectionState : "ice:—",
+    pc ? "gather:" + pc.iceGatheringState : "gather:—",
+    "chan:" + (P.dc ? P.dc.readyState : "—"),
+    "far:" + ($("#far").srcObject ? "stream" : "none")
+  ];
+  $("#diag").textContent = bits.join("  ");
+}
+setInterval(diag, 700);
+
+/* Safari will not autoplay a remote stream that carries audio unless it
+   is satisfied a gesture caused it. Try, and offer a tap if it refuses. */
+async function playVideo(el){
+  try{ await el.play(); $("#tapplay").classList.add("hide"); }
+  catch(e){ $("#tapplay").classList.remove("hide"); }
+}
+$("#tapplay").onclick = async () => {
+  await playVideo($("#far")); await playVideo($("#near"));
+  $("#tapplay").classList.add("hide");
+};
+
 function buildSegs(cfg){
   const out = [];
   for (let i = 0; i < cfg.stations; i++){
@@ -203,7 +234,8 @@ async function startMedia(){
     audio:{ echoCancellation:true, noiseSuppression:true }
   });
   $("#near").srcObject = P.local;
-  say("Camera on");
+  playVideo($("#near"));
+  say("Camera on — you should see yourself bottom right");
   return P.local;
 }
 
@@ -211,7 +243,7 @@ function newPC(){
   const pc = new RTCPeerConnection({ iceServers:[
     { urls:["stun:stun.l.google.com:19302","stun:stun1.l.google.com:19302"] }
   ]});
-  pc.ontrack = e => { $("#far").srcObject = e.streams[0]; };
+  pc.ontrack = e => { $("#far").srcObject = e.streams[0]; playVideo($("#far")); };
   pc.onconnectionstatechange = () => {
     const st = pc.connectionState;
     if (st === "connected") onConnected();
@@ -227,7 +259,7 @@ function iceDone(pc){
     if (pc.iceGatheringState === "complete") return res();
     const check = () => { if (pc.iceGatheringState === "complete"){ pc.removeEventListener("icegatheringstatechange", check); res(); } };
     pc.addEventListener("icegatheringstatechange", check);
-    setTimeout(res, 2500);              // some networks never report complete
+    setTimeout(res, 6000);              // some networks never report complete; mobile is slow
   });
 }
 
@@ -330,6 +362,10 @@ $("#mkAnswer").onclick = async () => {
     await startMedia();
     P.role = "guest";
     const inc = await unpack($("#offerIn").value);
+    if (!inc.d || inc.d.type !== "offer"){
+      say("That is a reply code, not an invite. Ask them for the code their 'Create an invite code' button produced.", true);
+      return;
+    }
     P.cfg = inc.cfg; S.segs = buildSegs(P.cfg); S.idx = 0; S.remain = S.segs[0].dur*1000;
     P.pc = newPC();
     P.pc.ondatachannel = e => wireChannel(e.channel);
@@ -344,8 +380,13 @@ $("#mkAnswer").onclick = async () => {
   }catch(e){ say("That invite code did not read: " + e.message, true); }
 };
 $("#useAnswer").onclick = async () => {
+  if (!P.pc){ say("Create an invite code first", true); return; }
   try{
     const inc = await unpack($("#answerIn").value);
+    if (!inc.d || inc.d.type !== "answer"){
+      say("That is an invite code, not a reply. Your friend pastes yours into the box below, then sends you what it gives them.", true);
+      return;
+    }
     await P.pc.setRemoteDescription(inc.d);
     say("Connecting…");
   }catch(e){ say("That reply code did not read: " + e.message, true); }
@@ -354,6 +395,10 @@ const copyTo = async (el, btn) => {
   try{ await navigator.clipboard.writeText(el.value); }
   catch(_){ el.select(); document.execCommand("copy"); }
   const o = btn.textContent; btn.textContent = "Copied"; setTimeout(()=>btn.textContent=o, 1400);
+};
+$("#selftest").onclick = async () => {
+  try{ await startMedia(); await playVideo($("#near")); }
+  catch(e){ say("Camera blocked: " + e.message + " — check the site has camera permission, and that the page is on https", true); }
 };
 $("#copyOffer").onclick  = e => copyTo($("#offerOut"), e.currentTarget);
 $("#copyAnswer").onclick = e => copyTo($("#answerOut"), e.currentTarget);
