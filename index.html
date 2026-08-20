@@ -161,6 +161,19 @@ details.sec[open] > summary{border-bottom:1px solid var(--line)}
 .phys.on .ds{color:var(--dim)}
 .hint{font-size:12px;color:var(--dim2);line-height:1.55;margin:9px 2px 0}
 
+/* ---------- emblem ---------- */
+.embwrap{margin-top:26px;padding-top:22px;border-top:1px solid var(--line)}
+.embwrap h4{margin:0 0 4px;font-size:11px;letter-spacing:2.2px;text-transform:uppercase;color:var(--dim2);font-weight:800}
+.embtier{font-size:12px;color:var(--dim2);margin-bottom:14px}
+.embcard{background:
+    linear-gradient(45deg,#141417 25%,transparent 25%,transparent 75%,#141417 75%),
+    linear-gradient(45deg,#141417 25%,transparent 25%,transparent 75%,#141417 75%) 12px 12px,
+    #0d0d0f;
+  background-size:24px 24px;border:1px solid var(--line);border-radius:16px;padding:14px}
+#emblem{width:100%;height:auto;display:block;image-rendering:auto}
+.embrow{display:flex;gap:8px;margin-top:12px}
+.embrow .btn{flex:1;padding:13px 8px;font-size:13.5px;min-height:48px}
+
 /* ---------- training hub ---------- */
 .wk{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;margin-bottom:8px}
 /* NB: this modifier is "did", not "done" — the done screen owns a global
@@ -517,7 +530,8 @@ body.mixon .foot{display:none}
 /* ---------- done ---------- */
 .done{text-align:center;padding:40px 0}
 .done .big{font-size:clamp(32px,9vw,44px);font-weight:850;letter-spacing:-1px;color:var(--ink)}
-.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:26px 0}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:26px 0}
+@media(max-width:620px){.stats{grid-template-columns:repeat(2,1fr)}}
 .stat{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 8px}
 .stat .v{font-family:var(--mono);font-size:22px;font-weight:800}
 .stat .k{font-size:10px;letter-spacing:1.6px;text-transform:uppercase;color:var(--dim2);font-weight:800;margin-top:4px}
@@ -763,7 +777,9 @@ body.mixon .foot{display:none}
       <div class="stat"><div class="v" id="dTime">45:00</div><div class="k">Total</div></div>
       <div class="stat"><div class="v" id="dWork">—</div><div class="k">Work time</div></div>
       <div class="stat"><div class="v" id="dSets">—</div><div class="k">Station sets</div></div>
+      <div class="stat"><div class="v" id="dKcal">—</div><div class="k">Calories</div></div>
     </div>
+    <p class="hint" id="kcalNote" style="text-align:center;margin-top:-14px"></p>
     <div class="consist" id="consist">
       <h4>Your consistency</h4>
       <div class="crow"><span class="cl">Current streak</span><span class="cv" id="cStreak">0</span></div>
@@ -783,6 +799,18 @@ body.mixon .foot{display:none}
       <button class="btn primary" id="again">Run it again</button>
       <button class="btn" id="newone">Build a new one</button>
     </div>
+    <div class="embwrap">
+      <h4>Your emblem</h4>
+      <div class="embtier" id="emblemTier"></div>
+      <div class="embcard"><canvas id="emblem"></canvas></div>
+      <div class="embrow">
+        <button class="btn primary" id="embShare">Share</button>
+        <button class="btn" id="embCopy">Copy</button>
+        <button class="btn" id="embSave">Save</button>
+      </div>
+      <p class="hint">Transparent PNG. The code goes to stations.fit — more colour the more you train.</p>
+    </div>
+
     <button class="linkbtn" id="toHistory" style="margin-top:16px">See your history</button>
     <div style="margin-top:26px">
       <a class="iglink" href="https://www.instagram.com/stationsfitapp/" target="_blank" rel="noopener">
@@ -843,6 +871,12 @@ body.mixon .foot{display:none}
       <button class="opt" data-k="lvl" data-v="1"><div class="on1">New to this</div><div class="on2">Or coming back after a long break</div></button>
       <button class="opt" data-k="lvl" data-v="2"><div class="on1">Train regularly</div><div class="on2">Comfortable with the basics</div></button>
       <button class="opt" data-k="lvl" data-v="3"><div class="on1">Been at it for years</div><div class="on2">Give me everything</div></button>
+    </div>
+    <div class="qlab">Roughly what do you weigh? Optional — only used to estimate calories.</div>
+    <div class="namerow" style="margin-bottom:0">
+      <input class="nameinput" id="kgInput" type="number" inputmode="numeric" min="30" max="250"
+             placeholder="kg" style="max-width:130px">
+      <span class="hint" style="margin:0">Leave it blank and we'll assume 70 kg and say so.</span>
     </div>
   </div>
 
@@ -1335,7 +1369,7 @@ function totalSeconds(c){ return c.warmup + c.halftime + c.cooldown + c.halves.r
    sore: {shoulder:"easy"|"avoid", ...}
    --------------------------------------------------------- */
 const PROFKEY = "stations.profile.v1";
-const PROF = { name:"", av:0, sore:{}, jump:true, space:true, lvl:3, done:false, target:3, days:[] };
+const PROF = { name:"", av:0, sore:{}, jump:true, space:true, lvl:3, done:false, target:3, days:[], kg:null };
 
 function profLoad(){
   try{
@@ -1349,7 +1383,7 @@ function profLoad(){
 }
 function profSave(){
   try{ localStorage.setItem(PROFKEY, JSON.stringify({
-    name:PROF.name, av:PROF.av, target:PROF.target, days:PROF.days,
+    name:PROF.name, av:PROF.av, target:PROF.target, days:PROF.days, kg:PROF.kg,
     sore:PROF.sore, jump:PROF.jump, space:PROF.space, lvl:PROF.lvl,
     done:PROF.done, equip:S.equip
   })); }catch(e){}
@@ -1359,6 +1393,19 @@ function profSave(){
    around. Zero means never. "Go easy" leaves it possible but rare —
    which is Andre's call; "avoid" is the honest option for anyone who
    means it, and the intake offers both per body part. */
+/* How recently an exercise was used, as a multiplier. Yesterday's work
+   should be rare today without being banned outright — the pool is only
+   96 deep and hard exclusions empty it fast. */
+function recentPenalty(){
+  const now = Date.now(), cut = now - 4*86400000, m = new Map();
+  for (const sess of HIST.list){
+    if (sess.t < cut) continue;
+    const days = (now - sess.t) / 86400000;
+    const w = days < 1 ? 0.06 : days < 2 ? 0.18 : days < 3 ? 0.45 : 0.75;
+    for (const n of (sess.ex || [])) m.set(n, Math.min(m.has(n) ? m.get(n) : 1, w));
+  }
+  return m;
+}
 function weightOf(x){
   const t = tagOf(x.n);
   if (!hasKit(x.n)) return 0;
@@ -1372,6 +1419,7 @@ function weightOf(x){
     if (how === "avoid") return 0;
     if (how === "easy") w *= 0.12;
   }
+  if (S.recent && S.recent.has(x.n)) w *= S.recent.get(x.n);
   return w;
 }
 function poolFor(pattern){ return LIB.filter(x => x.p === pattern && weightOf(x) > 0); }
@@ -1410,6 +1458,7 @@ function buildStations(h, used){
   return out;
 }
 function generateWorkout(){
+  S.recent = recentPenalty();
   if (!Object.values(S.equip).some(Boolean)) S.equip.bw = true;
   const used = new Set();
   const w = clone(S.cfg);
@@ -2202,6 +2251,213 @@ function renderPreview(){
   $$(".swap").forEach(b => b.onclick = () => swapStation(+b.dataset.h, +b.dataset.s));
 }
 
+/* ---------------------------------------------------------
+   CALORIES
+   MET by movement pattern, the standard kcal = MET x 3.5 x kg / 200
+   per minute. An estimate, and the UI says so — without heart rate
+   there is no honest precision here.
+   --------------------------------------------------------- */
+const MET = { push:6, pull:6, legs:7, core:4, power:9, cardio:9 };
+const DEFAULT_KG = 70;
+const patternOf = name => { const e = LIB.find(x => x.n === name); return e ? e.p : null; };
+function estimateKcal(segs, kg){
+  kg = kg || DEFAULT_KG;
+  let k = 0;
+  for (const sg of segs){
+    const met = sg.type === "work" ? (MET[patternOf(sg.label)] || 6)
+              : sg.type === "rest" ? 2.5 : 3.5;
+    k += met * 3.5 * kg / 200 * (sg.dur / 60);
+  }
+  return Math.round(k);
+}
+
+/* =========================================================
+   7b. QR
+   ========================================================= */
+/* Minimal QR encoder — byte mode, ECC level M, versions 1..10.
+   Structure follows the reference algorithm: build a module matrix plus a
+   parallel "is this a function module" mask, place data in the zigzag,
+   then pick the mask with the lowest penalty. No dependencies. */
+
+const EXP = new Uint8Array(512), LOG = new Uint8Array(256);
+(function(){ let x = 1;
+  for (let i = 0; i < 255; i++){ EXP[i] = x; LOG[x] = i; x = (x << 1) ^ ((x >> 7) * 0x11d); }
+  for (let i = 255; i < 512; i++) EXP[i] = EXP[i - 255];
+})();
+const mul = (a,b) => (a === 0 || b === 0) ? 0 : EXP[LOG[a] + LOG[b]];
+
+function rsGen(n){
+  let p = [1];
+  for (let i = 0; i < n; i++){
+    const q = new Array(p.length + 1).fill(0);
+    for (let j = 0; j < p.length; j++){ q[j] ^= mul(p[j], EXP[i]); q[j+1] ^= p[j]; }
+    p = q;
+  }
+  // built ascending by degree; the remainder loop wants leading coefficient first
+  return p.reverse();
+}
+function rsEncode(data, ecLen){
+  const gen = rsGen(ecLen), res = new Array(ecLen).fill(0);
+  for (const b of data){
+    const f = b ^ res[0];
+    res.shift(); res.push(0);
+    for (let i = 0; i < ecLen; i++) res[i] ^= mul(gen[i+1], f);
+  }
+  return res;
+}
+
+// per version, ECC M: [ecCodewordsPerBlock, g1Blocks, g1DataCw, g2Blocks, g2DataCw]
+const VER = {
+  1:[10,1,16,0,0],  2:[16,1,28,0,0],  3:[26,1,44,0,0],  4:[18,2,32,0,0],
+  5:[24,2,43,0,0],  6:[16,4,27,0,0],  7:[18,4,31,0,0],  8:[22,2,38,2,39],
+  9:[22,3,36,2,37], 10:[26,4,43,1,44]
+};
+const ALIGN = {1:[],2:[6,18],3:[6,22],4:[6,26],5:[6,30],6:[6,34],
+               7:[6,22,38],8:[6,24,42],9:[6,26,46],10:[6,28,50]};
+const dataCw = v => { const [,g1,d1,g2,d2] = VER[v]; return g1*d1 + g2*d2; };
+
+function codewords(str, ver){
+  const bytes = new TextEncoder().encode(str);
+  const bits = [];
+  const push = (v,n) => { for (let i = n-1; i >= 0; i--) bits.push((v >> i) & 1); };
+  push(4, 4);
+  push(bytes.length, ver <= 9 ? 8 : 16);
+  for (const b of bytes) push(b, 8);
+  const cap = dataCw(ver) * 8;
+  if (bits.length > cap) return null;
+  push(0, Math.min(4, cap - bits.length));
+  while (bits.length % 8) bits.push(0);
+  const cw = [];
+  for (let i = 0; i < bits.length; i += 8){
+    let b = 0; for (let k = 0; k < 8; k++) b = (b << 1) | bits[i+k];
+    cw.push(b);
+  }
+  for (let i = 0; cw.length < dataCw(ver); i++) cw.push(i % 2 ? 0x11 : 0xEC);
+  return cw;
+}
+function interleave(cw, ver){
+  const [ecLen,g1,d1,g2,d2] = VER[ver];
+  const blocks = [], ecs = [];
+  let p = 0;
+  for (let i = 0; i < g1; i++){ const b = cw.slice(p,p+d1); p += d1; blocks.push(b); ecs.push(rsEncode(b,ecLen)); }
+  for (let i = 0; i < g2; i++){ const b = cw.slice(p,p+d2); p += d2; blocks.push(b); ecs.push(rsEncode(b,ecLen)); }
+  const out = [], maxD = Math.max(d1, d2 || 0);
+  for (let i = 0; i < maxD; i++) for (const b of blocks) if (i < b.length) out.push(b[i]);
+  for (let i = 0; i < ecLen; i++) for (const e of ecs) out.push(e[i]);
+  return out;
+}
+
+function build(ver){
+  const size = 17 + ver*4;
+  const m = Array.from({length:size}, () => new Array(size).fill(0));
+  const fn = Array.from({length:size}, () => new Array(size).fill(false));
+  const set = (r,c,v) => { if (r>=0 && c>=0 && r<size && c<size){ m[r][c] = v?1:0; fn[r][c] = true; } };
+
+  const finder = (r0,c0) => {
+    for (let r = -1; r <= 7; r++) for (let c = -1; c <= 7; c++){
+      const d = Math.max(Math.abs(r-3), Math.abs(c-3));
+      set(r0+r, c0+c, d !== 2 && d !== 4);
+    }
+  };
+  finder(0,0); finder(0,size-7); finder(size-7,0);
+
+  for (let i = 8; i < size-8; i++){ set(6,i,i%2===0); set(i,6,i%2===0); }   // between the finders only
+
+  const al = ALIGN[ver];
+  for (const r of al) for (const c of al){
+    if ((r<=8&&c<=8) || (r<=8&&c>=size-9) || (r>=size-9&&c<=8)) continue;
+    for (let dr=-2; dr<=2; dr++) for (let dc=-2; dc<=2; dc++)
+      set(r+dr, c+dc, Math.max(Math.abs(dr),Math.abs(dc)) !== 1);
+  }
+  // reserve the format areas so data placement skips them
+  for (let i = 0; i <= 8; i++){ if (i === 6) continue; set(8,i,false); set(i,8,false); }  // 6 is timing
+  for (let i = 0; i < 8; i++){ set(8,size-1-i,false); set(size-1-i,8,false); }
+  set(size-8, 8, true);                       // always-dark module
+  return { m, fn, size };
+}
+
+function placeData(m, fn, size, data){
+  let i = 0;
+  const bit = k => (k >>> 3) < data.length ? (data[k >>> 3] >> (7 - (k & 7))) & 1 : 0;
+  for (let right = size-1; right >= 1; right -= 2){
+    if (right === 6) right = 5;
+    for (let v = 0; v < size; v++){
+      for (let j = 0; j < 2; j++){
+        const c = right - j;
+        const up = ((right + 1) & 2) === 0;
+        const r = up ? size-1-v : v;
+        if (!fn[r][c]) m[r][c] = bit(i++);
+      }
+    }
+  }
+}
+
+const MASKS = [
+  (r,c)=>(r+c)%2===0, (r,c)=>r%2===0, (r,c)=>c%3===0, (r,c)=>(r+c)%3===0,
+  (r,c)=>(((r>>1)+Math.floor(c/3))%2)===0, (r,c)=>((r*c)%2+(r*c)%3)===0,
+  (r,c)=>(((r*c)%2+(r*c)%3)%2)===0, (r,c)=>((((r+c)%2)+((r*c)%3))%2)===0
+];
+
+function drawFormat(m, size, mask){
+  const data = (0 << 3) | mask;              // 0 = ECC level M
+  let rem = data;
+  for (let i = 0; i < 10; i++) rem = (rem << 1) ^ ((rem >>> 9) * 0x537);
+  const bits = ((data << 10) | rem) ^ 0x5412;
+  const b = i => (bits >>> i) & 1;
+  for (let i = 0; i <= 5; i++) m[i][8] = b(i);
+  m[7][8] = b(6); m[8][8] = b(7); m[8][7] = b(8);
+  for (let i = 9; i < 15; i++) m[8][14-i] = b(i);
+  for (let i = 0; i < 8; i++) m[8][size-1-i] = b(i);
+  for (let i = 8; i < 15; i++) m[size-15+i][8] = b(i);
+  m[size-8][8] = 1;
+}
+
+function penalty(m, size){
+  let p = 0;
+  for (let i = 0; i < size; i++){
+    const row = m[i], col = m.map(r => r[i]);
+    for (const line of [row, col]){
+      let run = 1;
+      for (let j = 1; j < size; j++){
+        if (line[j] === line[j-1]) run++;
+        else { if (run >= 5) p += 3 + run - 5; run = 1; }
+      }
+      if (run >= 5) p += 3 + run - 5;
+      for (let j = 0; j + 11 <= size; j++){
+        const s = line.slice(j, j+11).join("");
+        if (s === "10111010000" || s === "00001011101") p += 40;
+      }
+    }
+  }
+  for (let r = 0; r < size-1; r++) for (let c = 0; c < size-1; c++)
+    if (m[r][c] === m[r][c+1] && m[r][c] === m[r+1][c] && m[r][c] === m[r+1][c+1]) p += 3;
+  let dark = 0;
+  for (const row of m) for (const v of row) dark += v;
+  p += 10 * Math.floor(Math.abs(dark*20 - size*size*10) / (size*size));
+  return p;
+}
+
+function encode(text){
+  let ver = 0, cw = null;
+  for (let v = 1; v <= 10; v++){ cw = codewords(text, v); if (cw){ ver = v; break; } }
+  if (!ver) throw new Error("QR: text too long");
+  const data = interleave(cw, ver);
+
+  let best = null, bestP = Infinity;
+  for (let mask = 0; mask < 8; mask++){
+    const { m, fn, size } = build(ver);
+    placeData(m, fn, size, data);
+    for (let r = 0; r < size; r++) for (let c = 0; c < size; c++)
+      if (!fn[r][c] && MASKS[mask](r,c)) m[r][c] ^= 1;
+    drawFormat(m, size, mask);
+    const p = penalty(m, size);
+    if (p < bestP){ bestP = p; best = m; }
+  }
+  return best;
+}
+
+const qrEncode = encode;
+
 /* =========================================================
    8. IDENTITY — name + a generated icon
    The icon is derived from the name, so it is stable without
@@ -2290,10 +2546,163 @@ function paintAllAvatars(){ $$("canvas.av").forEach(c => paintAvatar(c, c.datase
 window.addEventListener("resize", () => { if ($("canvas.av")) paintAllAvatars(); });
 
 /* =========================================================
+   7c. EMBLEM
+   A square, transparent PNG for sharing: the mark, their creature, the
+   numbers, and a QR back to the site. Colour arrives as sessions add up —
+   the app stays monochrome, the badge is the one place that earns colour.
+   ========================================================= */
+const SITE = "https://stations.fit";
+/* Tiers unlock at 1 / 5 / 15 / 40 / 100 sessions. */
+const TIERS = [
+  { at:0,   name:"Iron",    ink:["#ffffff"] },
+  { at:5,   name:"Bronze",  ink:["#ffffff","#e08a4a"] },
+  { at:15,  name:"Silver",  ink:["#ffffff","#8fd0ff","#c9d6e2"] },
+  { at:40,  name:"Gold",    ink:["#ffffff","#ffd24a","#ff9d3c"] },
+  { at:100, name:"Neon",    ink:["#b8f227","#3ec8f0","#a98cff","#ff5d47"] }
+];
+const tierFor = n => TIERS.slice().reverse().find(t => n >= t.at) || TIERS[0];
+
+function drawEmblem(cv, opts){
+  const S2 = 1080, P = 84;                       // square, story-friendly
+  const dpr = 1;
+  cv.width = S2; cv.height = S2;
+  const ctx = cv.getContext("2d");
+  ctx.clearRect(0,0,S2,S2);                      // transparent background
+  ctx.imageSmoothingEnabled = false;
+
+  const n = opts.count || 0;
+  const tier = tierFor(n);
+  const ink = tier.ink;
+  const pick = i => ink[i % ink.length];
+
+  // --- chunky 8-bit frame, coloured by tier ---
+  const U = 18;                                   // one "pixel" of the frame
+  const drawFrame = () => {
+    const cells = Math.floor((S2 - P*2) / U);
+    for (let i = 0; i < cells; i++){
+      const c = pick(i);
+      ctx.fillStyle = c;
+      ctx.globalAlpha = 1;
+      ctx.fillRect(P + i*U, P, U-2, U-2);                       // top
+      ctx.fillRect(P + i*U, S2-P-U, U-2, U-2);                  // bottom
+      ctx.fillRect(P, P + i*U, U-2, U-2);                       // left
+      ctx.fillRect(S2-P-U, P + i*U, U-2, U-2);                  // right
+    }
+  };
+  drawFrame();
+
+  // --- their creature, big, centred upper ---
+  const av = 340, ax = (S2-av)/2, ay = 168;
+  const tmp = document.createElement("canvas");
+  tmp.width = tmp.height = av;
+  const tctx = tmp.getContext("2d");
+  tctx.imageSmoothingEnabled = false;
+  drawAvatar(tctx, av, opts.seed);
+  if (ink.length > 1){                            // tint the creature at higher tiers
+    tctx.globalCompositeOperation = "source-in";
+    const g = tctx.createLinearGradient(0,0,av,av);
+    ink.forEach((c,i) => g.addColorStop(i/Math.max(1,ink.length-1), c));
+    tctx.fillStyle = g; tctx.fillRect(0,0,av,av);
+    tctx.globalCompositeOperation = "source-over";
+  }
+  ctx.drawImage(tmp, ax, ay);
+
+  // --- name + tier ---
+  ctx.textAlign = "center";
+  ctx.fillStyle = "#fff";
+  ctx.font = "800 62px ui-monospace, SFMono-Regular, Menlo, monospace";
+  ctx.fillText((opts.name || "STATIONS").toUpperCase().slice(0,14), S2/2, 596);
+  ctx.fillStyle = pick(1);
+  ctx.font = "800 26px -apple-system, Inter, sans-serif";
+  ctx.fillText(tier.name.toUpperCase() + "  ·  " + n + " SESSION" + (n===1?"":"S"), S2/2, 640);
+
+  // --- the numbers ---
+  const stats = [
+    [mmss(opts.total||0), "TOTAL"],
+    [String(opts.sets||0), "SETS"],
+    ["~" + (opts.kcal||0), "KCAL"]
+  ];
+  stats.forEach(([v,k], i) => {
+    const x = S2/2 + (i-1)*200;
+    ctx.fillStyle = "#fff";
+    ctx.font = "800 46px ui-monospace, SFMono-Regular, Menlo, monospace";
+    ctx.fillText(v, x, 736);
+    ctx.fillStyle = "#9b9ba4";
+    ctx.font = "800 21px -apple-system, Inter, sans-serif";
+    ctx.fillText(k, x, 770);
+  });
+
+  // --- QR back to the site, bottom right ---
+  const m = qrEncode(SITE), q = m.length, qpx = 5, qsize = q*qpx;
+  const quiet = 4 * qpx;                               // spec wants 4 modules of margin
+  const qx = S2 - P - 38 - qsize, qy = S2 - P - 38 - qsize;
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(qx-quiet, qy-quiet, qsize+quiet*2, qsize+quiet*2);
+  ctx.fillStyle = "#000";
+  for (let r = 0; r < q; r++) for (let c = 0; c < q; c++)
+    if (m[r][c]) ctx.fillRect(qx + c*qpx, qy + r*qpx, qpx, qpx);
+
+  // --- wordmark, bottom left ---
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#fff";
+  ctx.font = "800 40px -apple-system, Inter, sans-serif";
+  ctx.letterSpacing = "6px";
+  ctx.fillText("STATIONS", P + 34, S2 - P - 96);
+  ctx.letterSpacing = "0px";
+  ctx.fillStyle = "#9b9ba4";
+  ctx.font = "700 24px -apple-system, Inter, sans-serif";
+  ctx.fillText("stations.fit", P + 34, S2 - P - 58);
+  ctx.textAlign = "center";
+}
+
+function emblemOpts(){
+  const last = HIST.list[HIST.list.length-1] || {};
+  return { seed: avatarSeed(), name: PROF.name, count: HIST.list.length,
+           total: last.total, sets: last.sets, kcal: last.kcal };
+}
+function renderEmblem(){
+  const cv = $("#emblem"); if (!cv) return;
+  drawEmblem(cv, emblemOpts());
+  const t = tierFor(HIST.list.length);
+  const nextT = TIERS.find(x => x.at > HIST.list.length);
+  $("#emblemTier").textContent = nextT
+    ? t.name + " · " + (nextT.at - HIST.list.length) + " more for " + nextT.name
+    : t.name + " · top tier";
+}
+function emblemBlob(){
+  return new Promise(res => $("#emblem").toBlob(res, "image/png"));
+}
+async function emblemShare(){
+  const blob = await emblemBlob();
+  const file = new File([blob], "stations.png", { type:"image/png" });
+  if (navigator.canShare && navigator.canShare({ files:[file] })){
+    try { await navigator.share({ files:[file] }); return "shared"; } catch(e){ return "cancelled"; }
+  }
+  return emblemDownload();
+}
+async function emblemCopy(){
+  try{
+    const blob = await emblemBlob();
+    await navigator.clipboard.write([ new ClipboardItem({ "image/png": blob }) ]);
+    return "copied";
+  }catch(e){ return emblemDownload(); }
+}
+async function emblemDownload(){
+  const blob = await emblemBlob();
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "stations-" + (PROF.name || "session").toLowerCase().replace(/\W+/g,"-") + ".png";
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  return "saved";
+}
+
+/* =========================================================
    8a. INTAKE
    ========================================================= */
 const IN = { step: 0, from: "home" };
 
+function renderKg(){ const el = $("#kgInput"); if (el) el.value = PROF.kg || ""; }
 function renderName(){
   $("#nameInput").value = PROF.name || "";
   paintAvatar($("#avPreview"));
@@ -2340,7 +2749,7 @@ function intakeStep(n){
 }
 function openIntake(from){
   IN.from = from || "home";
-  renderName(); renderSore(); renderPicks(); renderIEquip();
+  renderName(); renderKg(); renderSore(); renderPicks(); renderIEquip();
   intakeStep(0);
   show("intake");
 }
@@ -2769,6 +3178,11 @@ function finish(){
   $("#dTime").textContent = mmss(S.segs.total);
   $("#dWork").textContent = mmss(workSec);
   $("#dSets").textContent = work.length;
+  const kcal = estimateKcal(S.segs, PROF.kg);
+  $("#dKcal").textContent = "~" + kcal;
+  $("#kcalNote").innerHTML = "Rough estimate" + (PROF.kg ? " at " + PROF.kg + " kg" : ", assuming " + DEFAULT_KG + " kg") +
+    ' · <button class="linkbtn" id="setKg">' + (PROF.kg ? "change" : "set your weight") + '</button>';
+  $("#setKg").onclick = () => openIntake("done");
 
   const preset = PRESETS.find(x => x.id === S.presetId);
   const goal = goalById(S.goalId);
@@ -2779,10 +3193,12 @@ function finish(){
     total: S.segs.total,
     work: workSec,
     sets: work.length,
+    kcal,
     ex: [...new Set(work.map(s => s.label))],
     rpe: null
   });
   renderConsistency();
+  renderEmblem();
   $("#rpeRow").classList.remove("done");
   $$("#rpeRow .rpeBtn").forEach(b => b.classList.remove("on"));
   histHomeBadge();
@@ -2817,6 +3233,10 @@ $("#nameInput").oninput = () => {
   PROF.name = $("#nameInput").value.trim().slice(0,16);
   paintAvatar($("#avPreview"));
 };
+$("#kgInput").oninput = () => {
+  const v = Math.round(+$("#kgInput").value || 0);
+  PROF.kg = (v >= 30 && v <= 250) ? v : null;
+};
 $("#avReroll").onclick = () => { PROF.av = ((PROF.av||0) + 1) % 64; paintAvatar($("#avPreview")); };
 $("#iSkip").onclick = () => { PROF.done = true; profSave(); closeIntake(false); };
 $("#editProfile").onclick = () => openIntake("setup");
@@ -2825,6 +3245,11 @@ $("#calPrev").onclick = () => { CAL.m--; if (CAL.m < 0){ CAL.m = 11; CAL.y--; } 
 $("#calNext").onclick = () => { CAL.m++; if (CAL.m > 11){ CAL.m = 0; CAL.y++; } CAL.sel = null; renderCal(); };
 
 function openHistory(from){ HIST.from = from; histRender(); show("history"); }
+const flash = (btn, txt) => { const o = btn.textContent; btn.textContent = txt;
+  setTimeout(() => { btn.textContent = o; }, 1600); };
+$("#embShare").onclick = async e => flash(e.currentTarget, await emblemShare() === "shared" ? "Shared" : "Saved");
+$("#embCopy").onclick  = async e => flash(e.currentTarget, await emblemCopy() === "copied" ? "Copied" : "Saved");
+$("#embSave").onclick  = async e => { await emblemDownload(); flash(e.currentTarget, "Saved"); };
 $("#toHistory").onclick = () => openHistory("done");
 $("#hstreak").onclick   = () => openHistory("home");
 $("#histBack").onclick  = () => show(HIST.from || "home");

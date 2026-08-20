@@ -4,3 +4,11 @@ CLAUDE.md
 # source art — the mark ships as inline SVG inside index.html
 *.png
 _to_delete/
+
+# agent pipeline — local working files
+.pipeline/
+.claude/
+node_modules/
+tests/.artifacts/
+test-results/
+playwright-report/
