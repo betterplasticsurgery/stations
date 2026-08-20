@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<title>STATIONS — Train together</title>
+<style>
+:root{
+  --bg:#000; --panel:#0d0d0f; --panel2:#161619; --line:#26262b;
+  --txt:#fff; --dim:#9b9ba4; --dim2:#66666e; --ink:#fff;
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;padding:0;height:100%}
+body{background:var(--bg);color:var(--txt);font-family:var(--sans);overscroll-behavior:none}
+button{font-family:inherit;cursor:pointer;border:none;background:none;color:inherit}
+.hide{display:none !important}
+
+/* the partner fills the screen; everything else sits on top */
+#far{position:fixed;inset:0;width:100%;height:100%;object-fit:cover;background:#000;z-index:0}
+#scrim{position:fixed;inset:0;z-index:1;pointer-events:none;
+  background:
+    radial-gradient(115% 75% at 50% 42%, rgba(0,0,0,.22) 0%, rgba(0,0,0,.66) 62%, rgba(0,0,0,.86) 100%),
+    linear-gradient(180deg, rgba(0,0,0,.55) 0%, rgba(0,0,0,0) 22%, rgba(0,0,0,0) 66%, rgba(0,0,0,.62) 100%)}
+#near{position:fixed;right:14px;bottom:calc(84px + env(safe-area-inset-bottom));width:96px;height:138px;
+  object-fit:cover;border-radius:14px;border:1px solid #ffffff2e;z-index:4;background:#111;transform:scaleX(-1)}
+
+.stage{position:fixed;inset:0;z-index:3;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;text-align:center;padding:20px}
+.phase{font-size:11px;letter-spacing:4px;text-transform:uppercase;font-weight:800;color:#cfcfd6;
+  text-shadow:0 1px 12px #000}
+.clock{font-family:var(--mono);font-weight:800;letter-spacing:-4px;line-height:.86;
+  font-size:clamp(78px,24vw,180px);font-variant-numeric:tabular-nums;text-shadow:0 3px 30px #000}
+.exname{font-size:clamp(21px,5.6vw,38px);font-weight:800;margin-top:10px;letter-spacing:-.4px;
+  text-shadow:0 2px 16px #000;max-width:16ch}
+.meta{margin-top:12px;font-size:12.5px;color:#c2c2ca;text-shadow:0 1px 10px #000}
+#run.rest .clock{color:#8e8e97}
+
+.bar{position:fixed;top:0;left:0;right:0;height:14px;background:#ffffff1f;z-index:5}
+.bar i{position:absolute;inset:0 auto 0 0;background:#fff;transition:width .25s linear}
+
+.top{position:fixed;top:24px;left:0;right:0;z-index:5;display:flex;align-items:center;
+  justify-content:space-between;padding:0 14px}
+.who{display:flex;align-items:center;gap:8px;background:#000000a6;border:1px solid #ffffff24;
+  border-radius:999px;padding:7px 13px;font-size:12px;font-weight:700}
+.dot{width:7px;height:7px;border-radius:50%;background:#5a5a64}
+.dot.on{background:#fff}
+.ctrls{position:fixed;left:0;right:0;bottom:calc(16px + env(safe-area-inset-bottom));z-index:5;
+  display:flex;gap:10px;justify-content:center;padding:0 14px}
+.ctrls button{background:#ffffff1c;backdrop-filter:blur(10px);border-radius:14px;padding:15px 12px;
+  font-weight:750;font-size:14px;min-width:78px;min-height:54px}
+.ctrls button.go{background:#fff;color:#000;font-weight:850}
+.ctrls button.off{opacity:.42}
+.ctrls button.end{background:#ffffff14;max-width:64px;min-width:56px}
+
+/* connect panel */
+.wrap{position:fixed;inset:0;z-index:10;overflow:auto;background:#000;padding:26px 18px 40px}
+.inner{max-width:520px;margin:0 auto}
+h1{font-size:clamp(24px,6.6vw,32px);font-weight:800;letter-spacing:-.5px;margin:0 0 6px}
+.lede{color:var(--dim);font-size:14px;line-height:1.55;margin:0 0 22px}
+h2{font-size:11px;letter-spacing:2.2px;text-transform:uppercase;color:var(--dim2);font-weight:800;margin:26px 0 10px}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;background:var(--panel2);
+  border:1.5px solid var(--line);border-radius:12px;padding:15px 18px;min-height:52px;font-weight:700;font-size:14.5px;width:100%}
+.btn.primary{background:#fff;color:#000;border-color:#fff;font-weight:800}
+.btn:disabled{opacity:.4}
+.row{display:flex;gap:10px;margin-bottom:10px}
+textarea{width:100%;min-height:96px;background:var(--panel2);border:1px solid var(--line);border-radius:12px;
+  color:var(--txt);padding:12px;font-family:var(--mono);font-size:11.5px;line-height:1.45;outline:none;resize:vertical}
+.step{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:12px}
+.step .n{font-size:10px;letter-spacing:2px;text-transform:uppercase;color:var(--dim2);font-weight:800;margin-bottom:8px}
+.note{font-size:12px;color:var(--dim2);line-height:1.6;margin-top:10px}
+.stat{font-size:12.5px;font-family:var(--mono);color:var(--dim);margin-top:10px}
+.stat.bad{color:#d8d8de}
+.cfg{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:6px}
+.fld{display:flex;align-items:center;gap:8px;background:var(--panel2);border:1px solid var(--line);
+  border-radius:11px;padding:8px 11px}
+.fld label{font-size:12px;color:var(--dim)}
+.fld input{width:56px;background:none;border:none;color:#fff;font-family:var(--mono);font-size:14px;font-weight:700;outline:none}
+</style>
+</head>
+<body>
+
+<video id="far" autoplay playsinline></video>
+<div id="scrim"></div>
+
+<div class="bar"><i id="prog" style="width:0%"></i></div>
+<div class="top">
+  <div class="who"><span class="dot" id="pdot"></span><span id="pname">waiting…</span></div>
+  <div class="who"><span id="rtt">—</span></div>
+</div>
+
+<div class="stage" id="run">
+  <div class="phase" id="phase">Ready</div>
+  <div class="clock" id="clock">0:30</div>
+  <div class="exname" id="exname">Station 1</div>
+  <div class="meta" id="meta"></div>
+</div>
+
+<video id="near" autoplay playsinline muted></video>
+
+<div class="ctrls hide" id="ctrls">
+  <button id="toggle" class="go">Start</button>
+  <button id="mic">Mic</button>
+  <button id="cam">Cam</button>
+  <button id="end" class="end">✕</button>
+</div>
+
+<div class="wrap" id="connect">
+  <div class="inner">
+    <h1>Train together</h1>
+    <p class="lede">Two people, one workout, clocks in lockstep. Video is peer to peer —
+      nothing goes through a server, so there's no account and no cost. Swap the two codes
+      below by any means you like: message, email, read them out.</p>
+
+    <h2>The session</h2>
+    <div class="cfg">
+      <div class="fld"><label>Stations</label><input id="cStations" type="number" value="6" min="1" max="20"></div>
+      <div class="fld"><label>Work</label><input id="cWork" type="number" value="40" min="5" max="300"></div>
+      <div class="fld"><label>Rest</label><input id="cRest" type="number" value="20" min="0" max="300"></div>
+    </div>
+    <p class="note">Whoever starts the call sets these; they travel to the other person.</p>
+
+    <h2>Start a call</h2>
+    <div class="step">
+      <div class="n">You go first</div>
+      <button class="btn primary" id="mkOffer">Create an invite code</button>
+      <textarea id="offerOut" class="hide" readonly placeholder="your invite code"></textarea>
+      <button class="btn hide" id="copyOffer" style="margin-top:8px">Copy invite code</button>
+      <div class="n" style="margin-top:16px">Then paste their reply</div>
+      <textarea id="answerIn" placeholder="paste the reply code here"></textarea>
+      <button class="btn" id="useAnswer" style="margin-top:8px">Connect</button>
+    </div>
+
+    <h2>Or join one</h2>
+    <div class="step">
+      <div class="n">Paste their invite code</div>
+      <textarea id="offerIn" placeholder="paste the invite code here"></textarea>
+      <button class="btn" id="mkAnswer" style="margin-top:8px">Create a reply code</button>
+      <textarea id="answerOut" class="hide" readonly placeholder="your reply code"></textarea>
+      <button class="btn hide" id="copyAnswer" style="margin-top:8px">Copy reply code</button>
+    </div>
+
+    <div class="stat" id="stat">Camera not started</div>
+    <p class="note">Peer to peer works for most connections. Some mobile networks and office
+      firewalls block it — that's the case a relay server would cover, and this prototype
+      deliberately has none.</p>
+  </div>
+</div>
+
+<script>
+"use strict";
+const $ = s => document.querySelector(s);
+/* ceil, not round: a countdown should show 0:01 until the second is
+   actually spent, and it keeps both people's clocks reading the same
+   number when their paint happens a few ms apart. */
+const mmss = s => { s = Math.max(0, Math.ceil(s - 0.001)); return Math.floor(s/60) + ":" + String(s%60).padStart(2,"0"); };
+
+/* ---------- codes: deflate + base64 so they are pasteable ---------- */
+async function pack(obj){
+  const json = JSON.stringify(obj);
+  if (!window.CompressionStream) return "r" + btoa(unescape(encodeURIComponent(json)));
+  const cs = new CompressionStream("deflate-raw");
+  const buf = await new Response(new Blob([json]).stream().pipeThrough(cs)).arrayBuffer();
+  let bin = ""; for (const b of new Uint8Array(buf)) bin += String.fromCharCode(b);
+  return "z" + btoa(bin).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
+}
+async function unpack(str){
+  str = String(str||"").trim().replace(/\s+/g,"");
+  const kind = str[0], body = str.slice(1);
+  if (kind === "r") return JSON.parse(decodeURIComponent(escape(atob(body))));
+  const b64 = body.replace(/-/g,"+").replace(/_/g,"/");
+  const bin = atob(b64 + "=".repeat((4 - b64.length % 4) % 4));
+  const bytes = Uint8Array.from(bin, c => c.charCodeAt(0));
+  const ds = new DecompressionStream("deflate-raw");
+  const out = await new Response(new Blob([bytes]).stream().pipeThrough(ds)).text();
+  return JSON.parse(out);
+}
+
+/* ---------- state ---------- */
+const P = { pc:null, dc:null, local:null, role:null, cfg:null, connected:false };
+const S = { running:false, idx:0, endAt:0, remain:0, timer:null, segs:[] };
+
+const say = (t, bad) => { const el = $("#stat"); el.textContent = t; el.className = "stat" + (bad?" bad":""); };
+
+function buildSegs(cfg){
+  const out = [];
+  for (let i = 0; i < cfg.stations; i++){
+    out.push({ type:"work", label:"Station " + (i+1), dur:cfg.work, n:i+1, of:cfg.stations });
+    if (cfg.rest > 0 && i < cfg.stations-1)
+      out.push({ type:"rest", label:"Rest", dur:cfg.rest, n:i+1, of:cfg.stations });
+  }
+  let t = 0; out.forEach(s => { s.start = t; t += s.dur; });
+  out.total = t;
+  return out;
+}
+
+async function startMedia(){
+  if (P.local) return P.local;
+  P.local = await navigator.mediaDevices.getUserMedia({
+    video:{ width:{ideal:640}, height:{ideal:960}, facingMode:"user" },
+    audio:{ echoCancellation:true, noiseSuppression:true }
+  });
+  $("#near").srcObject = P.local;
+  say("Camera on");
+  return P.local;
+}
+
+function newPC(){
+  const pc = new RTCPeerConnection({ iceServers:[
+    { urls:["stun:stun.l.google.com:19302","stun:stun1.l.google.com:19302"] }
+  ]});
+  pc.ontrack = e => { $("#far").srcObject = e.streams[0]; };
+  pc.onconnectionstatechange = () => {
+    const st = pc.connectionState;
+    if (st === "connected") onConnected();
+    if (st === "failed" || st === "disconnected") { $("#pdot").classList.remove("on"); $("#pname").textContent = st; }
+  };
+  P.local.getTracks().forEach(t => pc.addTrack(t, P.local));
+  return pc;
+}
+/* Wait for ICE to finish so the code carries every candidate — no
+   trickle channel exists when the codes are copied by hand. */
+function iceDone(pc){
+  return new Promise(res => {
+    if (pc.iceGatheringState === "complete") return res();
+    const check = () => { if (pc.iceGatheringState === "complete"){ pc.removeEventListener("icegatheringstatechange", check); res(); } };
+    pc.addEventListener("icegatheringstatechange", check);
+    setTimeout(res, 2500);              // some networks never report complete
+  });
+}
+
+function wireChannel(dc){
+  P.dc = dc;
+  dc.onopen = () => onConnected();
+  dc.onmessage = e => {
+    let m; try{ m = JSON.parse(e.data); }catch(_){ return; }
+    if (m.t === "hello"){ $("#pname").textContent = m.name || "partner"; }
+    else if (m.t === "ping"){ send({ t:"pong", at:m.at }); }
+    else if (m.t === "pong"){ $("#rtt").textContent = Math.round(performance.now() - m.at) + " ms"; }
+    else if (m.t === "state") applyState(m);
+  };
+}
+const send = o => { try{ if (P.dc && P.dc.readyState === "open") P.dc.send(JSON.stringify(o)); }catch(_){} };
+
+function onConnected(){
+  if (P.connected) return;
+  if (!P.dc || P.dc.readyState !== "open") return;
+  P.connected = true;
+  $("#connect").classList.add("hide");
+  $("#ctrls").classList.remove("hide");
+  $("#pdot").classList.add("on");
+  $("#pname").textContent = "connected";
+  send({ t:"hello", name:"partner" });
+  setInterval(() => send({ t:"ping", at:performance.now() }), 3000);
+  if (!S.segs.length) S.segs = buildSegs(P.cfg);
+  paint();
+}
+
+/* The offerer owns the clock; the joiner mirrors it. One source of
+   truth avoids two timers drifting apart over 45 minutes. */
+function applyState(m){
+  S.segs = m.segs ? buildSegs(m.cfg) : S.segs;
+  if (m.cfg) P.cfg = m.cfg;
+  S.idx = m.idx; S.running = m.running;
+  S.remain = m.remain;
+  S.endAt = performance.now() + m.remain;
+  paint();
+  if (S.running && !S.timer) S.timer = setInterval(tick, 100);
+  if (!S.running && S.timer){ clearInterval(S.timer); S.timer = null; }
+}
+function broadcast(){
+  if (P.role !== "host") return;
+  send({ t:"state", idx:S.idx, running:S.running, remain:S.remain, cfg:P.cfg, segs:true });
+}
+
+function paint(){
+  const s = S.segs[S.idx]; if (!s) return;
+  $("#phase").textContent = s.type === "rest" ? "Rest" : "Station " + s.n + " of " + s.of;
+  $("#clock").textContent = mmss(S.remain/1000);
+  $("#exname").textContent = s.type === "rest" ? "Breathe" : s.label;
+  $("#run").className = "stage " + s.type;
+  const done = s.start + (s.dur - S.remain/1000);
+  $("#prog").style.width = (100*done/S.segs.total).toFixed(2) + "%";
+  $("#meta").textContent = mmss(S.segs.total - done) + " left";
+  $("#toggle").textContent = S.running ? "Pause" : (S.idx === 0 && S.remain === S.segs[0].dur*1000 ? "Start" : "Resume");
+  $("#toggle").classList.toggle("go", !S.running);
+}
+function tick(){
+  if (!S.running) return;
+  S.remain = S.endAt - performance.now();
+  if (S.remain <= 0){
+    if (S.idx >= S.segs.length - 1){ S.running = false; S.remain = 0; broadcast(); paint(); return; }
+    S.idx++; S.remain = S.segs[S.idx].dur * 1000; S.endAt = performance.now() + S.remain;
+    broadcast();
+  }
+  paint();
+}
+function setRunning(on){
+  S.running = on;
+  if (on){
+    if (!S.remain) S.remain = S.segs[S.idx].dur * 1000;
+    S.endAt = performance.now() + S.remain;
+    if (!S.timer) S.timer = setInterval(tick, 100);
+  } else if (S.timer){ clearInterval(S.timer); S.timer = null; }
+  broadcast(); paint();
+}
+
+/* ---------- connect flows ---------- */
+$("#mkOffer").onclick = async () => {
+  try{
+    await startMedia();
+    P.role = "host";
+    P.cfg = { stations:+$("#cStations").value||6, work:+$("#cWork").value||40, rest:+$("#cRest").value||20 };
+    S.segs = buildSegs(P.cfg); S.idx = 0; S.remain = S.segs[0].dur*1000;
+    P.pc = newPC();
+    wireChannel(P.pc.createDataChannel("stations", { ordered:true }));
+    await P.pc.setLocalDescription(await P.pc.createOffer());
+    await iceDone(P.pc);
+    const code = await pack({ d:P.pc.localDescription, cfg:P.cfg });
+    $("#offerOut").value = code;
+    $("#offerOut").classList.remove("hide");
+    $("#copyOffer").classList.remove("hide");
+    say("Invite code ready — send it, then paste their reply");
+  }catch(e){ say("Could not start: " + e.message, true); }
+};
+$("#mkAnswer").onclick = async () => {
+  try{
+    await startMedia();
+    P.role = "guest";
+    const inc = await unpack($("#offerIn").value);
+    P.cfg = inc.cfg; S.segs = buildSegs(P.cfg); S.idx = 0; S.remain = S.segs[0].dur*1000;
+    P.pc = newPC();
+    P.pc.ondatachannel = e => wireChannel(e.channel);
+    await P.pc.setRemoteDescription(inc.d);
+    await P.pc.setLocalDescription(await P.pc.createAnswer());
+    await iceDone(P.pc);
+    const code = await pack({ d:P.pc.localDescription });
+    $("#answerOut").value = code;
+    $("#answerOut").classList.remove("hide");
+    $("#copyAnswer").classList.remove("hide");
+    say("Reply code ready — send it back");
+  }catch(e){ say("That invite code did not read: " + e.message, true); }
+};
+$("#useAnswer").onclick = async () => {
+  try{
+    const inc = await unpack($("#answerIn").value);
+    await P.pc.setRemoteDescription(inc.d);
+    say("Connecting…");
+  }catch(e){ say("That reply code did not read: " + e.message, true); }
+};
+const copyTo = async (el, btn) => {
+  try{ await navigator.clipboard.writeText(el.value); }
+  catch(_){ el.select(); document.execCommand("copy"); }
+  const o = btn.textContent; btn.textContent = "Copied"; setTimeout(()=>btn.textContent=o, 1400);
+};
+$("#copyOffer").onclick  = e => copyTo($("#offerOut"), e.currentTarget);
+$("#copyAnswer").onclick = e => copyTo($("#answerOut"), e.currentTarget);
+
+$("#toggle").onclick = () => {
+  if (P.role !== "host"){ say("Only the person who started the call controls the clock"); return; }
+  setRunning(!S.running);
+};
+$("#mic").onclick = e => {
+  const t = P.local && P.local.getAudioTracks()[0]; if (!t) return;
+  t.enabled = !t.enabled; e.currentTarget.classList.toggle("off", !t.enabled);
+};
+$("#cam").onclick = e => {
+  const t = P.local && P.local.getVideoTracks()[0]; if (!t) return;
+  t.enabled = !t.enabled; e.currentTarget.classList.toggle("off", !t.enabled);
+};
+$("#end").onclick = () => {
+  try{ P.pc && P.pc.close(); }catch(_){}
+  try{ P.local && P.local.getTracks().forEach(t => t.stop()); }catch(_){}
+  location.reload();
+};
+window.__duo = { P, S, buildSegs, setRunning, pack, unpack };
+</script>
+</body>
+</html>
