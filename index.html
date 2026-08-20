@@ -161,6 +161,54 @@ details.sec[open] > summary{border-bottom:1px solid var(--line)}
 .phys.on .ds{color:var(--dim)}
 .hint{font-size:12px;color:var(--dim2);line-height:1.55;margin:9px 2px 0}
 
+/* ---------- training hub ---------- */
+.wk{display:grid;grid-template-columns:repeat(7,1fr);gap:6px;margin-bottom:8px}
+/* NB: this modifier is "did", not "done" — the done screen owns a global
+   .done{padding:40px 0} further down, and an equally specific .wkd.done
+   loses to it on source order, which blew these cells up to 82px. */
+.wkd{height:54px;border-radius:10px;background:var(--panel);border:1px solid var(--line);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;position:relative;
+  min-width:0;padding:0;overflow:hidden}
+.wkd .dn{font-size:9px;letter-spacing:.6px;text-transform:uppercase;color:var(--dim2);font-weight:800}
+.wkd .dd{font-size:13px;font-weight:800;color:var(--dim)}
+.wkd.plan{border-style:dashed;border-color:#3d3d46}
+.wkd.did{background:var(--ink);border-color:var(--ink)}
+.wkd.did .dn,.wkd.did .dd{color:#000}
+.wkd.today{box-shadow:0 0 0 2px #5a5a64}
+.wkd.did.today{box-shadow:0 0 0 2px #fff}
+.tgtrow{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:14px 0 4px}
+.tgtrow .tl{font-size:13px;color:var(--dim)}
+.next{background:#121215;border:1px solid #4a4a54;border-left:3px solid #fff;border-radius:13px;
+  padding:16px 17px;margin:16px 0 4px}
+.next .nh{font-size:10px;letter-spacing:2.2px;text-transform:uppercase;color:var(--dim2);font-weight:800;margin-bottom:8px}
+.next .nb{font-size:15px;font-weight:750;line-height:1.4}
+.next .nw{font-size:12.5px;color:var(--dim);line-height:1.5;margin-top:6px}
+.next .btn{margin-top:14px;width:100%}
+
+.cal{margin-top:6px}
+.calhd{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.calhd .mo{font-size:14px;font-weight:800;letter-spacing:.2px}
+.calhd button{width:38px;height:38px;border-radius:10px;background:var(--panel);border:1px solid var(--line);
+  color:var(--dim);font-size:16px;display:grid;place-items:center}
+.calhd button:hover{color:var(--txt);border-color:#3a3a42}
+.calhd button[disabled]{opacity:.3;pointer-events:none}
+.calgrid{display:grid;grid-template-columns:repeat(7,1fr);gap:5px}
+.calgrid .hd{font-size:9px;letter-spacing:1px;text-transform:uppercase;color:var(--dim2);
+  font-weight:800;text-align:center;padding-bottom:4px}
+.cell{aspect-ratio:1;border-radius:8px;background:#0e0e11;border:1px solid #1b1b1f;
+  display:grid;place-items:center;font-size:12px;font-weight:700;color:var(--dim2);position:relative;min-width:0}
+.cell.pad{background:none;border-color:transparent}
+.cell.has{background:#3a3a42;color:#fff}
+.cell.has.h2{background:#7a7a86}
+.cell.has.h3{background:#fff;color:#000}
+.cell.today{box-shadow:0 0 0 2px #5a5a64}
+.cell.sel{box-shadow:0 0 0 2px #fff}
+.cell.hit{cursor:pointer}
+.daydet{margin-top:12px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px}
+.daydet .dh{font-size:13px;font-weight:750;margin-bottom:9px}
+.daydet .de{font-size:12.5px;color:var(--dim);line-height:1.6}
+.daydet .de b{color:#fff;font-weight:700}
+
 /* ---------- mix library ---------- */
 .mixlist{display:flex;flex-direction:column;gap:7px;margin-bottom:14px}
 .mixitem{display:flex;align-items:center;gap:10px;background:var(--panel2);
@@ -643,7 +691,6 @@ body.mixon .foot{display:none}
 <div id="preview" class="wrap hide">
   <div class="brand"><h1>Your <span>session</span></h1></div>
   <p class="lede" id="prevlede"></p>
-  <p class="note hide" id="sharedbanner" style="border-left:2px solid var(--line);padding-left:10px;margin-top:10px"></p>
 
   <div class="section">
     <div class="halfhdr a"><div class="t">Half 1</div><div class="m" id="m0"></div></div>
@@ -659,10 +706,6 @@ body.mixon .foot{display:none}
     <button class="btn" style="flex:1" id="reshuffle">Shuffle all</button>
     <button class="btn" style="flex:1" id="back">Back</button>
   </div>
-  <div class="btnrow" style="margin-top:9px">
-    <button class="btn wide" id="share">Share this workout</button>
-  </div>
-  <p class="note hide" id="sharemsg"></p>
   <p class="note">Tap the ⇄ on any station to swap that exercise for another one that trains the same pattern. Screen stays awake during the session where the browser allows it.</p>
 </div>
 
@@ -816,6 +859,34 @@ body.mixon .foot{display:none}
   <div class="topnav">
     <button class="backlink" id="histBack" title="Back">←</button>
     <div class="brand" style="margin:0"><h1>Your <span>history</span></h1></div>
+  </div>
+
+  <div class="section">
+    <h2>This week</h2>
+    <div class="wk" id="weekStrip"></div>
+    <div class="tgtrow">
+      <span class="tl">Sessions a week you're aiming for</span>
+      <div class="num" data-k="target" data-min="1" data-max="7" id="targetNum"></div>
+    </div>
+    <p class="hint" id="weekHint"></p>
+  </div>
+
+  <div class="next" id="nextCard">
+    <div class="nh">What next</div>
+    <div class="nb" id="nextBody"></div>
+    <div class="nw" id="nextWhy"></div>
+    <button class="btn primary" id="nextGo">Build it</button>
+  </div>
+
+  <div class="section cal">
+    <h2>Calendar</h2>
+    <div class="calhd">
+      <button id="calPrev" title="Previous month">‹</button>
+      <div class="mo" id="calMonth"></div>
+      <button id="calNext" title="Next month">›</button>
+    </div>
+    <div class="calgrid" id="calGrid"></div>
+    <div class="daydet hide" id="dayDet"></div>
   </div>
 
   <div class="stats" id="histStats">
@@ -1259,7 +1330,7 @@ function totalSeconds(c){ return c.warmup + c.halftime + c.cooldown + c.halves.r
    sore: {shoulder:"easy"|"avoid", ...}
    --------------------------------------------------------- */
 const PROFKEY = "stations.profile.v1";
-const PROF = { name:"", av:0, sore:{}, jump:true, space:true, lvl:3, done:false };
+const PROF = { name:"", av:0, sore:{}, jump:true, space:true, lvl:3, done:false, target:3, days:[] };
 
 function profLoad(){
   try{
@@ -1273,7 +1344,7 @@ function profLoad(){
 }
 function profSave(){
   try{ localStorage.setItem(PROFKEY, JSON.stringify({
-    name:PROF.name, av:PROF.av,
+    name:PROF.name, av:PROF.av, target:PROF.target, days:PROF.days,
     sore:PROF.sore, jump:PROF.jump, space:PROF.space, lvl:PROF.lvl,
     done:PROF.done, equip:S.equip
   })); }catch(e){}
@@ -2317,7 +2388,163 @@ function hoursMins(sec){
 }
 const RPE_LABEL = ["Too easy", "About right", "Too much"];
 
+/* ---------------- week, calendar, what next ---------------- */
+const DAYS = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
+const MONTHS = ["January","February","March","April","May","June",
+                "July","August","September","October","November","December"];
+const CAL = { y:0, m:0, sel:null };
+
+const startOfWeek = d => {              // weeks run Monday to Sunday
+  const x = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  x.setDate(x.getDate() - ((x.getDay() + 6) % 7));
+  return x;
+};
+function sessionsOn(key){ return HIST.list.filter(x => dayKey(x.t) === key); }
+
+function renderTarget(){
+  const el = $("#targetNum"); if (!el) return;
+  if (!el.dataset.built){
+    el.dataset.built = "1";
+    el.innerHTML = '<button data-d="-1">−</button><input type="number" readonly><button data-d="1">+</button>';
+    $$("button", el).forEach(b => b.onclick = () => {
+      PROF.target = Math.min(7, Math.max(1, (PROF.target||3) + (+b.dataset.d)));
+      profSave(); renderTarget(); renderWeek(); renderNext();
+    });
+  }
+  $("input", el).value = PROF.target || 3;
+}
+function renderWeek(){
+  renderTarget();
+  const mon = startOfWeek(new Date()), today = dayKey(Date.now());
+  let done = 0;
+  $("#weekStrip").innerHTML = DAYS.map((nm,i) => {
+    const d = new Date(mon); d.setDate(mon.getDate()+i);
+    const k = dayKey(d.getTime());
+    const hit = sessionsOn(k).length > 0;
+    if (hit) done++;
+    const planned = (PROF.days || []).includes(i);
+    return '<button class="wkd' + (hit?" did":"") + (planned&&!hit?" plan":"") +
+      (k===today?" today":"") + '" data-d="'+i+'">' +
+      '<span class="dn">'+nm+'</span><span class="dd">'+d.getDate()+'</span></button>';
+  }).join("");
+  $$("#weekStrip .wkd").forEach(b => b.onclick = () => {
+    const i = +b.dataset.d, cur = PROF.days || [];
+    PROF.days = cur.includes(i) ? cur.filter(x=>x!==i) : cur.concat(i).sort();
+    profSave(); renderWeek();
+  });
+  const target = PROF.target || 3;
+  const left = Math.max(0, target - done);
+  $("#weekHint").textContent = done >= target
+    ? "Target met — " + done + " of " + target + ". Anything else is a bonus."
+    : done + " of " + target + " done. " + left + " to go" +
+      ((PROF.days||[]).length ? ". Tap a day to mark when you plan to train." : " — tap a day to plan when.");
+  return { done, target };
+}
+
+function renderCal(){
+  const now = new Date();
+  if (!CAL.y){ CAL.y = now.getFullYear(); CAL.m = now.getMonth(); }
+  $("#calMonth").textContent = MONTHS[CAL.m] + " " + CAL.y;
+  const first = new Date(CAL.y, CAL.m, 1);
+  const lead = (first.getDay() + 6) % 7;                 // Monday-first offset
+  const days = new Date(CAL.y, CAL.m+1, 0).getDate();
+  const today = dayKey(Date.now());
+  let html = DAYS.map(d => '<div class="hd">'+d[0]+'</div>').join("");
+  for (let i=0;i<lead;i++) html += '<div class="cell pad"></div>';
+  for (let d=1; d<=days; d++){
+    const k = CAL.y + "-" + (CAL.m+1) + "-" + d;
+    const n = sessionsOn(k).length;
+    const heat = n >= 3 ? " h3" : n === 2 ? " h2" : "";
+    html += '<div class="cell' + (n?" has hit"+heat:"") + (k===today?" today":"") +
+            (k===CAL.sel?" sel":"") + '" data-k="'+k+'">'+d+'</div>';
+  }
+  $("#calGrid").innerHTML = html;
+  $$("#calGrid .hit").forEach(c => c.onclick = () => { CAL.sel = c.dataset.k; renderCal(); });
+  // no forward navigation past the current month — there is nothing there
+  $("#calNext").disabled = (CAL.y > now.getFullYear()) ||
+                           (CAL.y === now.getFullYear() && CAL.m >= now.getMonth());
+  renderDay();
+}
+function renderDay(){
+  const box = $("#dayDet");
+  const list = CAL.sel ? sessionsOn(CAL.sel) : [];
+  box.classList.toggle("hide", !list.length);
+  if (!list.length) return;
+  const [y,m,d] = CAL.sel.split("-").map(Number);
+  box.innerHTML = '<div class="dh">' +
+    new Date(y, m-1, d).toLocaleDateString(undefined,{weekday:"long", day:"numeric", month:"long"}) +
+    '</div>' + list.map(x => {
+      const bits = ['<b>'+esc(x.preset||"Custom")+'</b>'];
+      if (x.goal) bits.push(esc(x.goal));
+      bits.push(mmss(x.total||0));
+      bits.push((x.sets||0)+" sets");
+      if (x.rpe != null && RPE_LABEL[x.rpe]) bits.push(RPE_LABEL[x.rpe]);
+      const ex = (x.ex||[]).slice(0,6).join(", ");
+      return '<div class="de" style="margin-bottom:8px">' + bits.join("  ·  ") +
+             (ex ? '<br><span style="color:var(--dim2)">'+esc(ex)+((x.ex||[]).length>6?"…":"")+'</span>' : '') +
+             '</div>';
+    }).join("");
+}
+
+/* What to do next. Plain rules over the history — recency, how the last
+   one felt, and which emphasis has had least attention lately. */
+function nextSuggestion(){
+  const wk = { done:0, target: PROF.target || 3 };
+  const mon = startOfWeek(new Date());
+  for (let i=0;i<7;i++){ const d=new Date(mon); d.setDate(mon.getDate()+i);
+    if (sessionsOn(dayKey(d.getTime())).length) wk.done++; }
+
+  const last = HIST.list[HIST.list.length-1];
+  const hrs = last ? (Date.now() - last.t)/3600000 : 1e9;
+
+  if (hrs < 6)
+    return { title:"You've already trained today", why:"Come back tomorrow, or do something easy and short if you're itching.",
+             preset:"express", goal:"lean", cta:"Build something short" };
+
+  if (last && last.rpe === 2 && hrs < 30)
+    return { title:"Go lighter today", why:"You marked the last one as too much, and it was less than a day ago. Same shape, more recovery between efforts.",
+             preset:null, goal:"strong", cta:"Build an easier one" };
+
+  if (hrs > 24*10)
+    return { title:"Start again gently", why:"It's been a while. A shorter session you'll actually finish beats an ambitious one you won't.",
+             preset:"express", goal:"allround", cta:"Build a 30-minute session" };
+
+  // which emphasis has had the least attention in the last six
+  const recent = HIST.list.slice(-6).map(x => x.goal).filter(Boolean);
+  const counts = {};
+  GOALS.forEach(g => counts[g.name] = 0);
+  recent.forEach(n => { if (counts[n] != null) counts[n]++; });
+  const leanest = GOALS.slice().sort((a,b) => counts[a.name] - counts[b.name])[0];
+
+  const why = wk.done >= wk.target
+    ? "You've hit this week's target. This one's for the fun of it."
+    : (recent.length
+        ? "You've leaned on " + (recent[recent.length-1] || "the same thing") +
+          " lately — this balances it out. " + (wk.target - wk.done) + " to go this week."
+        : "A balanced place to start. " + (wk.target - wk.done) + " to go this week.");
+
+  return { title: leanest.name + " session", why, preset:null, goal:leanest.id, cta:"Build it" };
+}
+function renderNext(){
+  const s2 = nextSuggestion();
+  $("#nextBody").textContent = s2.title;
+  $("#nextWhy").textContent = s2.why;
+  $("#nextGo").textContent = s2.cta;
+  $("#nextGo").onclick = () => {
+    if (s2.preset){
+      S.presetId = s2.preset;
+      const g = goalById(s2.goal || S.goalId);
+      S.cfg = cfgFor(PRESETS.find(x=>x.id===s2.preset), g);
+      S.goalShift = g ? g.shift : 0;
+    }
+    if (s2.goal) setGoal(s2.goal);
+    renderPresets(); renderConfig();
+    show("setup");
+  };
+}
+
 function histRender(){
+  renderWeek(); renderCal(); renderNext();
   const n = HIST.list.length;
   $("#hSessions").textContent = n;
   $("#hStreak").textContent = histStreak();
@@ -2571,7 +2798,6 @@ function quitRun(){
 $("#build").onclick = () => { generateWorkout(); renderPreview(); show("preview"); window.scrollTo(0,0); };
 $("#back").onclick  = () => show("setup");
 $("#reshuffle").onclick = () => { generateWorkout(); renderPreview(); };
-$("#share").onclick = () => doShare();
 $("#start").onclick = () => { if (!S.ac) beep(1,0.01,0.0001); startWorkout(); };
 $("#toggle").onclick = () => setRunning(!S.running);
 $("#next").onclick = () => advance(1);
@@ -2588,6 +2814,9 @@ $("#nameInput").oninput = () => {
 $("#avReroll").onclick = () => { PROF.av = ((PROF.av||0) + 1) % 64; paintAvatar($("#avPreview")); };
 $("#iSkip").onclick = () => { PROF.done = true; profSave(); closeIntake(false); };
 $("#editProfile").onclick = () => openIntake("setup");
+
+$("#calPrev").onclick = () => { CAL.m--; if (CAL.m < 0){ CAL.m = 11; CAL.y--; } CAL.sel = null; renderCal(); };
+$("#calNext").onclick = () => { CAL.m++; if (CAL.m > 11){ CAL.m = 0; CAL.y++; } CAL.sel = null; renderCal(); };
 
 function openHistory(from){ HIST.from = from; histRender(); show("history"); }
 $("#toHistory").onclick = () => openHistory("done");
@@ -2857,26 +3086,6 @@ function musProvider(u){
   if (/mixcloud\.com\//i.test(s))   return "mixcloud";
   return "";
 }
-/* People paste whatever the share sheet hands them. The mobile host
-   m.soundcloud.com resolves fine through oEmbed but the *widget* rejects it
-   outright with "not a valid SoundCloud URL", and share links arrive carrying
-   ?si= tracking params. Normalise before anything downstream sees the URL.
-   secret_token is deliberately preserved — stripping it kills private links. */
-function musNormalize(raw){
-  let s = String(raw||"").trim();
-  if (!s) return "";
-  s = s.replace(/^https?:\/\//i, "");
-  s = s.replace(/^(?:m|mobile|www)\.((?:soundcloud|mixcloud)\.com\/)/i, "$1");
-  s = "https://" + s;
-  try{
-    const u = new URL(s);
-    ["si","utm_source","utm_medium","utm_campaign","utm_content","utm_term","ref"]
-      .forEach(k => u.searchParams.delete(k));
-    u.hash = "";
-    s = u.toString().replace(/\?$/, "");
-  }catch(e){}
-  return s;
-}
 function mixKey(input){
   const m = String(input||"").match(/mixcloud\.com\/([^\/\s?#]+)\/([^\/\s?#]+)/i);
   return m ? "/" + m[1] + "/" + m[2] + "/" : "";
@@ -3106,7 +3315,7 @@ function musRender(){
   if (sum) sum.textContent = !MUS.on ? "Off" : (loaded ? (MUS.name || "Ready") : "On — no mix yet");
 }
 async function musUse(raw){
-  const url = musNormalize(raw);
+  const url = String(raw||"").trim();
   const prov = musProvider(url);
   if (!prov){ MUS.err = "Paste a SoundCloud or Mixcloud link"; musRender(); return; }
   MUS.err = ""; MUS.loading = true; MUS.ready = false; MUS.widget = null;
@@ -3171,164 +3380,6 @@ $("#mixAlign").classList.add("on");
 musRender();
 
 /* =========================================================
-   15. SHARE A SESSION
-
-   No backend and no accounts, so the whole session travels in the
-   URL fragment: format, physique goal, equipment, the exact timings
-   and the exact station list, plus the mix link and its options.
-   A fragment never reaches a server, which suits a file that is
-   otherwise entirely offline.
-
-   Stations ride as indices into LIB with a fingerprint of the
-   library alongside. On a build whose LIB differs the indices would
-   point at the wrong exercises, so the check fails closed: the
-   preferences still apply and the stations are regenerated.
-
-   PROF is deliberately NOT shared. The sender's sore joints, level
-   and space are theirs — applying someone else's injury filter to
-   you would be both wrong and useless. The station list already
-   carries the result of their filtering, which is what "do this
-   session with me" actually means.
-   ========================================================= */
-const SHARE_V = 2;
-const SHARE_KIT = ["db","kb","bench","box"];   // bodyweight is always in
-
-function libFingerprint(){
-  const s = LIB.map(x => x.n).join("|");
-  let h = 5381;
-  for (let i = 0; i < s.length; i++) h = ((h*33) ^ s.charCodeAt(i)) >>> 0;
-  return (LIB.length * 1e6 + (h % 1e6));
-}
-function b64e(str){
-  const b = new TextEncoder().encode(str);
-  let s = ""; for (const c of b) s += String.fromCharCode(c);
-  return btoa(s).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
-}
-function b64d(str){
-  const s = str.replace(/-/g,"+").replace(/_/g,"/");
-  const bin = atob(s + "=".repeat((4 - s.length % 4) % 4));
-  return new TextDecoder().decode(Uint8Array.from(bin, c => c.charCodeAt(0)));
-}
-
-function sharePayload(){
-  const w = S.workout, c = S.cfg;
-  let eq = 0;
-  SHARE_KIT.forEach((k,i) => { if (S.equip[k]) eq |= (1 << i); });
-  return {
-    v: SHARE_V,
-    p: S.presetId, g: S.goalId, e: eq,
-    c: [c.warmup, c.halftime, c.cooldown],
-    h: c.halves.map(h => [h.stations, h.work, h.rest, h.rounds, h.focus]),
-    s: w ? w.halves.map(h => h.list.map(ex => LIB.findIndex(x => x.n === ex.n))) : [],
-    f: libFingerprint(),
-    m: MUS.url || MUS.savedUrl || "",
-    mo: { p: MUS.perStation, c: MUS.pct, s: MUS.shuffle, a: MUS.align }
-  };
-}
-function shareLink(){
-  return location.origin + location.pathname + "#w=" + b64e(JSON.stringify(sharePayload()));
-}
-function shareDecode(enc){
-  try{
-    const d = JSON.parse(b64d(enc));
-    if (!d || d.v !== SHARE_V || !Array.isArray(d.h)) return null;
-    return d;
-  }catch(e){ return null; }
-}
-
-/* Music is prefilled but deliberately NOT loaded: a link from someone
-   else is not the recipient's consent to hit the network, so it waits
-   for a tap and the cold load stays at zero requests. */
-function applyShared(d){
-  if (PRESETS.some(p => p.id === d.p)) S.presetId = d.p;
-  if (goalById(d.g)){ S.goalId = d.g; S.goalShift = goalById(d.g).shift; }
-  const eq = {};
-  SHARE_KIT.forEach((k,i) => { eq[k] = !!(d.e & (1 << i)); });
-  S.equip = eq;                       // session only — profSave() is not called
-
-  S.cfg = {
-    warmup:   +d.c[0] || 0,
-    halftime: +d.c[1] || 0,
-    cooldown: +d.c[2] || 0,
-    halves:   d.h.map(a => ({ stations:+a[0], work:+a[1], rest:+a[2], rounds:+a[3], focus:a[4] }))
-  };
-
-  const exact = d.f === libFingerprint()
-             && Array.isArray(d.s) && d.s.length === S.cfg.halves.length
-             && d.s.every((l,i) => Array.isArray(l) && l.length === S.cfg.halves[i].stations
-                                && l.every(k => k >= 0 && k < LIB.length));
-  if (exact){
-    const w = clone(S.cfg);
-    w.halves.forEach((h,i) => { h.list = d.s[i].map(k => LIB[k]); });
-    S.workout = w;
-  } else {
-    generateWorkout();
-  }
-
-  if (d.m && musProvider(d.m)){
-    const o = d.mo || {};
-    if (typeof o.c === "number") MUS.pct = o.c;
-    MUS.perStation = o.p !== false;
-    MUS.shuffle    = o.s !== false;
-    MUS.align      = o.a !== false;
-    MUS.savedUrl   = d.m;
-    if ($("#mixUrl")) $("#mixUrl").value = d.m;
-    if ($("#mixPct")) $("#mixPct").value = MUS.pct;
-    if ($("#mixForget")) $("#mixForget").classList.remove("hide");
-    const flag = (el, on) => { if (!el) return; el.textContent = on ? "On" : "Off"; el.classList.toggle("on", on); };
-    flag($("#mixPer"), MUS.perStation);
-    flag($("#mixShuffle"), MUS.shuffle);
-    flag($("#mixAlign"), MUS.align);
-    if (!MUS.ready){
-      MUS.on = true;
-      flag($("#mToggle"), true);
-      if ($("#mBody")) $("#mBody").classList.remove("hide");
-      if ($("#secMusic")) $("#secMusic").open = true;
-    }
-    musRender();
-  }
-
-  renderPresets(); renderGoals(); renderEquip(); renderConfig();
-  renderPreview();
-  const note = $("#sharedbanner");
-  if (note){
-    note.textContent = exact
-      ? (d.m ? "Someone shared this session with you. Their mix is below — tap Load in Music to play it."
-             : "Someone shared this session with you.")
-      : "Someone shared their settings with you. Their exact stations came from a different version of the app, so these were generated fresh.";
-    note.classList.remove("hide");
-  }
-  show("preview");
-}
-
-function shareBoot(){
-  const m = String(location.hash || "").match(/[#&]w=([A-Za-z0-9\-_]+)/);
-  if (!m) return false;
-  const d = shareDecode(m[1]);
-  if (!d) return false;
-  applyShared(d);
-  try{ history.replaceState(null, "", location.pathname + location.search); }catch(e){}
-  return true;
-}
-
-async function doShare(){
-  const url = shareLink();
-  const msg = $("#sharemsg");
-  const say = t => { if (msg){ msg.textContent = t; msg.classList.remove("hide"); } };
-  const text = "Do this " + mmss(totalSeconds(S.workout)) + " STATIONS session with me — same stations, same mix.";
-  if (navigator.share){
-    try{ await navigator.share({ title:"STATIONS", text, url }); return; }
-    catch(e){ if (e && e.name === "AbortError") return; }   // they backed out; not an error
-  }
-  try{
-    await navigator.clipboard.writeText(url);
-    say("Link copied — send it to whoever you're training with.");
-  }catch(e){
-    say("Couldn't copy automatically. Link: " + url);
-  }
-}
-
-/* =========================================================
    12. BOOT
    ========================================================= */
 S.cfg = cfgFor(PRESETS[0], goalById(S.goalId));
@@ -3336,15 +3387,10 @@ S.goalShift = goalById(S.goalId).shift;
 renderPresets(); renderGoals(); renderEquip(); renderConfig();
 profLoad(); histLoad(); histHomeBadge(); renderEquip();
 // #mixwrap lives after this script, so wait for the full document
-function bootMusicAndShare(){
-  musRestore();
-  // an incoming link wins over the home screen, but only once the music
-  // controls exist for it to prefill
-  if (!shareBoot()) show("home");
-}
-if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", bootMusicAndShare);
-else bootMusicAndShare();
+if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", musRestore);
+else musRestore();
 if (window.matchMedia("(min-width:721px)").matches) $("#secStructure").open = true;
+show("home");
 </script>
 <div id="mixwrap" class="hide"><div id="mixplayer"></div></div>
 </body>
