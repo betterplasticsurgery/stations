@@ -4086,7 +4086,8 @@ async function doShare(){
    window.STATIONS_RELAY is the override the test harness sets to point
    at a local relay, and the same seam lets a working copy aim at a dev
    Worker without editing this line. */
-const DUO_RELAY = (typeof window !== "undefined" && window.STATIONS_RELAY) || "";
+const DUO_RELAY = (typeof window !== "undefined" && window.STATIONS_RELAY) ||
+      "https://stations-signal.andre-rafizadeh.workers.dev";
 
 const DUO = {
   on:false, role:null, code:"", link:"",
@@ -4397,8 +4398,11 @@ async function duoHost(){
     duoShowInvite();
     duoMsg("Send them the link. This screen will say when they're in.");
   }catch(e){
-    duoMsg("Could not start: " + (e.message || e), true);
+    /* Tear down FIRST, then speak. duoHangUp hides the panel the message
+       lives in, so saying it first meant writing an explanation nobody
+       could read — the same failure the relay-not-configured message had. */
     duoHangUp();
+    duoMsg("Could not start: " + (e.message || e), true);
   }finally{ DUO.busy = false; }
 }
 async function duoHostSignal(m){

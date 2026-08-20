@@ -27,7 +27,23 @@ is far more relayed video than this app will ever produce. Without it the
 app still works; it just fails to connect for a real minority of people,
 and says so.
 
-## Deploy
+## Already deployed
+
+**Live at `https://stations-signal.andre-rafizadeh.workers.dev`**, deployed
+2026-08-20 through the Cloudflare dashboard rather than from a laptop.
+
+It is wired to this repository: Cloudflare watches `betterplasticsurgery/stations`,
+builds from the `/worker` root directory, and runs `npx wrangler deploy` on every
+push to `main`. **So changing `signal.js` and pushing is the whole redeploy
+process** — there is nothing to run by hand.
+
+Build history: Workers & Pages → stations-signal → Deployments.
+A note on reading it: the live build log streams unreliably and can sit on
+"Initializing build environment…" for minutes after the build has actually
+finished. Check the build *history* list for the green tick rather than
+believing the log.
+
+## Deploying it somewhere else
 
 ```sh
 cd worker
@@ -37,31 +53,39 @@ npx wrangler deploy
 Wrangler will ask you to log in the first time. When it finishes it prints
 the URL — something like `https://stations-signal.<you>.workers.dev`.
 
-Then turn TURN on (optional, recommended):
+## Turn TURN on — the one thing still outstanding
 
-1. Cloudflare dashboard → **Realtime** → **TURN Keys** → create one.
+Right now `/ice` returns public STUN only. Confirm it yourself:
+`https://stations-signal.andre-rafizadeh.workers.dev/ice` — if the response
+has no `turn:` URLs in it, TURN is off, and calls where either person is on
+office, hotel or university wifi will fail to connect.
+
+1. Cloudflare dashboard → **Realtime** → **TURN Server** → create a key.
 2. Note the key ID and the API token.
-3. ```sh
+3. Add them as secrets. Either from a terminal:
+   ```sh
+   cd worker
    npx wrangler secret put TURN_KEY_ID
    npx wrangler secret put TURN_KEY_API_TOKEN
    ```
+   or in the dashboard: Workers & Pages → stations-signal → Settings →
+   **Variables and Secrets** → add each as type **Secret**.
+
+Secrets are not in this repo and must never be. `signal.js` reads them from
+`env` and falls back to public STUN when they are absent, so a missing secret
+costs you some calls rather than all of them.
 
 Without those two secrets `/ice` quietly returns public STUN instead. That
 is a deliberate fallback, not a failure — check it by opening
 `https://<your-worker>/ice` and looking for `turn:` URLs in the response.
 
-## Point the app at it
+## How the app finds it
 
-One line, in section 16 of `index.html`:
-
-```js
-const DUO_RELAY = (typeof window !== "undefined" && window.STATIONS_RELAY) || "";
-```
-
-Put your Worker URL in as the fallback:
+One line, in section 16 of `index.html`, already filled in:
 
 ```js
-const DUO_RELAY = (typeof window !== "undefined" && window.STATIONS_RELAY) || "https://stations-signal.<you>.workers.dev";
+const DUO_RELAY = (typeof window !== "undefined" && window.STATIONS_RELAY) ||
+      "https://stations-signal.andre-rafizadeh.workers.dev";
 ```
 
 Left empty, **Train together** tells the user it isn't set up rather than

@@ -81,18 +81,39 @@ console.log("\nlibrary");
   await ctx.close();
 }
 
-/* ---- 4. duo says so plainly when no relay is deployed ---- */
-console.log("\nduo without a relay");
+/* ---- 4. the relay being unreachable is explained, not swallowed ----
+   DUO_RELAY now points at the deployed Worker, so "nothing configured"
+   is no longer reachable from a browser. What IS reachable is the relay
+   being down or blocked, and that has to say so rather than hanging. */
+console.log("\nduo when the relay cannot be reached");
 {
-  const ctx = await browser.newContext();
-  const p = await newPage(ctx);                 // no STATIONS_RELAY injected
+  const ctx = await browser.newContext({ permissions:["camera","microphone"] });
+  const p = await ctx.newPage();
+  p.on("pageerror", e => { fail++; console.log("  FAIL page error — " + e.message); });
+  await p.addInitScript(() => { window.STATIONS_RELAY = "http://127.0.0.1:9"; });  // discard port
   await p.goto(BASE);
   await p.evaluate(() => { generateWorkout(); show("preview"); });
   await p.click("#duostart");
-  await p.waitForSelector("#duomsg:not(.hide)", { timeout:3000 });
+  await p.waitForFunction(() => {
+    const el = document.querySelector("#duomsg");
+    return el && !el.classList.contains("hide") && /could not|did not answer|Could not start/i.test(el.textContent);
+  }, null, { timeout: 20000 });
   const t = await p.textContent("#duomsg");
-  ok("explains that the relay is not deployed", /worker\/README/.test(t), t);
-  ok("nothing was left half-open", await p.evaluate(() => !DUO.on && !DUO.ws));
+  ok("says the relay could not be reached", /relay/i.test(t), t);
+  ok("the message is actually visible", await p.isVisible("#duomsg"));
+  ok("no half-open call left behind", await p.evaluate(() => !DUO.connected && !DUO.ws));
+  await ctx.close();
+}
+
+/* ---- 4b. the deployed relay URL is the one baked into the app ---- */
+console.log("\ndeployed relay");
+{
+  const ctx = await browser.newContext();
+  const p = await ctx.newPage();
+  await p.goto(BASE);
+  const url = await p.evaluate(() => DUO_RELAY);
+  ok("DUO_RELAY is filled in", /^https:\/\/.+/.test(url), url);
+  ok("and is not a placeholder", !/<|your-worker|example/.test(url), url);
   await ctx.close();
 }
 
