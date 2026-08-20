@@ -13,6 +13,34 @@ No API keys, no OAuth, no developer accounts, no approval process.
 That's the whole setup. To put it on your own domain, add a `CNAME` file
 containing `stations.fit` (or `app.stations.fit`) and point the DNS at GitHub.
 
+## Training together
+
+Two people, two phones, one clock. Tap **Train together** under a session and
+you get a link; whoever opens it sees the exact same stations before their
+camera turns on, and once they join, your clock runs both screens. Your partner
+fills the screen behind the timer.
+
+Some things worth knowing, because they're deliberate:
+
+- **Your mic mutes itself during work and opens during rest.** If you're both
+  playing the same mix out loud, open mics send each other a second copy of it a
+  fraction of a second late, and it sounds terrible. Muting the loud parts fixes
+  it, and it's when you'd actually talk anyway. Tap the mic to take manual
+  control and it stays where you put it.
+- **Music plays on both ends, started together, and never re-synced.** Nobody
+  can stream one person's SoundCloud to the other — the platforms don't allow a
+  page to read the audio out of their player, on purpose. So both sides load the
+  same mix and start on the same beat, and then it's left alone. Over 45 minutes
+  in two different rooms, you will not notice.
+- **Whoever starts the call runs the clock.** Two independent timers drift; one
+  doesn't. The other person's pause button will politely refuse.
+
+**This one feature needs something deployed.** Everything else in STATIONS is a
+single file on a static host — but two phones can't introduce themselves to each
+other without a small server holding the door for the few seconds it takes. It's
+free, it's about eighty lines, and `worker/README.md` has the steps. Until it's
+deployed, Train together says so instead of pretending.
+
 ## How the music works
 
 Paste a **SoundCloud** or **Mixcloud** link. The app figures out which it is and

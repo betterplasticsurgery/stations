@@ -525,6 +525,44 @@ body.mixon .foot{display:none}
 #run.rest .phase,#run.halftime .phase{color:var(--dim2)}
 #run.paused .clock{opacity:.4}
 #run.last3 .clock{animation:pulse .5s ease-in-out infinite alternate}
+
+/* ---- train together ----
+   The partner sits behind the timer rather than beside it: on a phone
+   there is only one screen's worth of attention, and the clock has to
+   win it. Video only paints while a call is up, so nothing about the
+   solo session changes. */
+#duofar{position:fixed;inset:0;width:100%;height:100%;object-fit:cover;background:#000;z-index:48;display:none}
+#duoscrim{position:fixed;inset:0;z-index:49;display:none;pointer-events:none;
+  background:radial-gradient(122% 78% at 50% 44%, rgba(0,0,0,.18) 0%, rgba(0,0,0,.62) 60%, rgba(0,0,0,.86) 100%)}
+#duonear{position:fixed;right:13px;bottom:calc(96px + env(safe-area-inset-bottom));width:92px;height:132px;
+  object-fit:cover;border-radius:14px;border:1px solid #ffffff2e;z-index:52;background:#111;
+  transform:scaleX(-1);display:none}
+body.duo #duofar,body.duo #duoscrim{display:block}
+body.duocam #duonear{display:block}
+/* #run keeps its own tint so the type stays readable over whatever
+   their room looks like, but stops being opaque. */
+body.duo #run{background:transparent}
+body.duo #run.work{background:rgba(0,0,0,.30)}
+body.duo #run.rest,body.duo #run.halftime,body.duo #run.warmup,body.duo #run.cooldown{background:rgba(0,0,0,.46)}
+body.duo .clock,body.duo .exname,body.duo .phase{text-shadow:0 2px 22px #000}
+/* the partner is already a moving body to copy — the demo figure
+   gives up some room rather than competing with them */
+body.duo .figwrap{height:min(22vh,178px)}
+#duostrip{display:flex;align-items:center;justify-content:center;gap:9px;padding:0 16px 6px;
+  font-size:11.5px;color:var(--dim);letter-spacing:.2px}
+#duostrip .ddot{width:7px;height:7px;border-radius:50%;background:#5a5a64;flex:none}
+#duostrip .ddot.on{background:#fff;box-shadow:0 0 9px #fff}
+#duostrip #duomicstate{color:var(--dim2)}
+.duopanel{margin-top:14px;border:1px solid var(--line);border-radius:14px;padding:14px}
+.duohdr{font-size:11px;letter-spacing:2.6px;text-transform:uppercase;font-weight:800;color:var(--dim2);margin-bottom:9px}
+.duolink{width:100%;background:#ffffff0d;border:1px solid var(--line);border-radius:10px;
+  padding:11px 12px;color:var(--txt);font-family:var(--mono);font-size:12.5px}
+.duoqr{display:block;margin:12px auto 0;border-radius:8px;image-rendering:pixelated}
+.duorow{display:flex;align-items:center;justify-content:space-between;gap:12px;
+  padding:9px 0;font-size:13.5px;border-top:1px solid var(--line)}
+.duotog{border:1px solid var(--line);border-radius:999px;padding:5px 14px;font-size:12px;font-weight:750;color:var(--dim)}
+.duotog.on{background:var(--ink);color:#000;border-color:var(--ink)}
+#duomsg.bad{color:#ff9a9a}
 @keyframes pulse{from{transform:scale(1)}to{transform:scale(1.06)}}
 
 /* ---------- done ---------- */
@@ -724,6 +762,31 @@ body.mixon .foot{display:none}
   <div class="btnrow" style="margin-top:9px">
     <button class="btn wide" id="share">Share this workout</button>
   </div>
+  <div class="btnrow" style="margin-top:9px">
+    <button class="btn wide" id="duostart">Train together — live</button>
+  </div>
+  <div id="duopanel" class="duopanel hide">
+    <div id="duoshare">
+      <div class="duohdr">Your invite</div>
+      <input id="duolink" class="duolink" readonly>
+      <div class="btnrow" style="margin-top:9px">
+        <button class="btn" id="duosend">Send it</button>
+        <button class="btn" id="duocopy">Copy link</button>
+        <button class="btn" id="duoend">Cancel</button>
+      </div>
+      <canvas id="duoqr" class="duoqr hide"></canvas>
+      <p class="note">One link, one join, good for half an hour. They get these exact stations — and your clock runs both screens.</p>
+    </div>
+    <div id="duoinvite" class="hide">
+      <div class="duohdr">They're waiting</div>
+      <div class="duorow hide" id="duomixrow"><span>Play their mix on your end too</span><button class="duotog on" id="duomix">On</button></div>
+      <div class="btnrow" style="margin-top:9px">
+        <button class="btn primary" id="duojoin">Join the call</button>
+        <button class="btn" id="duoend2">Not now</button>
+      </div>
+    </div>
+    <p class="note hide" id="duomsg"></p>
+  </div>
   <p class="note hide" id="sharemsg"></p>
   <p class="note">Tap the ⇄ on any station to swap that exercise for another one that trains the same pattern. Screen stays awake during the session where the browser allows it.</p>
 </div>
@@ -733,6 +796,8 @@ body.mixon .foot{display:none}
   <div class="topbar">
     <div class="pill" id="rphase">Warm-up</div>
     <div class="icons">
+      <button id="tMic" class="hide" title="Mic">🎤</button>
+      <button id="tCam" class="hide" title="Camera">📷</button>
       <button id="tMusic" class="off hide" title="Music">🎵</button>
       <button id="tFig" title="Show demo">🏃</button>
       <button id="tSound" title="Beeps">🔊</button>
@@ -755,6 +820,7 @@ body.mixon .foot{display:none}
       <div><div class="k">Left</div><div class="v" id="cLeft">45:00</div></div>
     </div>
   </div>
+  <div id="duostrip" class="hide"><span class="ddot" id="duodot"></span><span id="duowho">connecting…</span><span id="duomicstate"></span></div>
   <div id="nowplaying" class="hide"><span class="npdot"></span><span id="npTrack"></span></div>
   <div class="ctrls">
     <button id="prev">↺ Back</button>
@@ -3090,7 +3156,8 @@ function startWorkout(){
   show("run");
   paintTicks();
   keepAwake(true);
-  musicStart();
+  if (!(DUO.connected && DUO.role === "guest")) musicStart();
+  if (DUO.connected && DUO.role === "host"){ duoTell({ t:"go" }); duoOfferMix(); }
   beep(880, .12);
   enterSeg(true);
   S.running = true;
@@ -3128,6 +3195,7 @@ function enterSeg(first){
     else if (s.type === "halftime") say("Half time.");
   }
   if (s.type === "work" && !first) beep(1200, .16, .3);
+  if (DUO.on) duoSegment(s);
   $("#cHalf").textContent    = s.half==null ? "—" : (s.half+1)+"/"+S.workout.halves.length;
   $("#cRound").textContent   = s.round==null ? "—" : (s.round+1)+"/"+s.rounds;
   $("#cStation").textContent = s.station==null ? "—" : (s.station+1)+"/"+s.stations;
@@ -3160,6 +3228,7 @@ function advance(dir){
 }
 function setRunning(on){
   S.running = on;
+  duoBroadcast();
   if (!$("#tMusic").classList.contains("off")){ on ? musicResume() : musicPause(); }
   if (on) S.endAt = performance.now() + S.remain;
   $("#toggle").textContent = on ? "Pause" : "Resume";
@@ -3170,6 +3239,7 @@ function setRunning(on){
 function finish(){
   figStop();
   musicStop();
+  if (DUO.connected && DUO.role === "host") duoTell({ t:"end" });
   clearInterval(S.timer); S.timer = null; S.running = false; keepAwake(false);
   beep(660,.16); setTimeout(()=>beep(880,.16),170); setTimeout(()=>beep(1320,.35),340);
   say("Session complete. Well done.");
@@ -3208,6 +3278,7 @@ function finish(){
 function quitRun(){
   figStop();
   musicStop();
+  if (DUO.connected && DUO.role === "host") duoTell({ t:"quit" });
   clearInterval(S.timer); S.timer = null; S.running = false; keepAwake(false);
   try{ speechSynthesis.cancel(); }catch(e){}
   show("preview");
@@ -3221,10 +3292,10 @@ $("#back").onclick  = () => show("setup");
 $("#reshuffle").onclick = () => { generateWorkout(); renderPreview(); };
 $("#share").onclick = () => doShare();
 $("#start").onclick = () => { if (!S.ac) beep(1,0.01,0.0001); startWorkout(); };
-$("#toggle").onclick = () => setRunning(!S.running);
-$("#next").onclick = () => advance(1);
-$("#prev").onclick = () => { S.idx = Math.max(0, S.idx-1); enterSeg(false); };
-$("#quit").onclick = quitRun;
+$("#toggle").onclick = () => { if (!duoGuestBlocked()) setRunning(!S.running); };
+$("#next").onclick = () => { if (!duoGuestBlocked()) advance(1); };
+$("#prev").onclick = () => { if (duoGuestBlocked()) return; S.idx = Math.max(0, S.idx-1); enterSeg(false); };
+$("#quit").onclick = () => { if (DUO.on) duoHangUp(); quitRun(); };
 $("#again").onclick = () => startWorkout();
 $("#newone").onclick = () => show("setup");
 $("#iBack").onclick = () => { if (IN.step) intakeStep(IN.step-1); else closeIntake(false); };
@@ -3989,6 +4060,519 @@ async function doShare(){
 }
 
 /* =========================================================
+   16. TRAIN TOGETHER — the duo call
+   =========================================================
+   Two people, one clock, one session.
+
+   Almost nothing travels between them. The session itself rides in
+   the invite as the same payload the share link already builds, so
+   the person opening the link sees the exact stations before any
+   camera turns on. After that the only traffic is the host's clock
+   and, once, a mix to load.
+
+   The relay in worker/ exists for exactly one reason: a link can
+   carry an offer out, but nothing carries the answer back. The
+   moment the peer connection is up the relay is closed and every
+   later byte is peer to peer.
+
+   Nothing here touches the network until someone taps Train
+   together or opens an invite — the cold-load promise is intact.
+   ========================================================= */
+
+/* The Worker you deployed from worker/ — see worker/README.md.
+   Left unset, Train together says so in words rather than failing
+   somewhere deep in a WebSocket handler.
+
+   window.STATIONS_RELAY is the override the test harness sets to point
+   at a local relay, and the same seam lets a working copy aim at a dev
+   Worker without editing this line. */
+const DUO_RELAY = (typeof window !== "undefined" && window.STATIONS_RELAY) || "";
+
+const DUO = {
+  on:false, role:null, code:"", link:"",
+  ws:null, pc:null, dc:null, local:null, ice:null,
+  connected:false, busy:false, invite:null,
+  off:0, rtt:1e9, pings:0, pingTimer:null, beat:null,
+  micAuto:true, micOn:true, camOn:true,
+  mixWanted:true, mixAt:0, mixTimer:null
+};
+
+/* No l/1/o/0 — this gets read aloud and typed by hand often enough
+   to matter. 8 characters of 32 is plenty for a room that lives
+   half an hour. */
+function duoCode(){
+  const a = new Uint8Array(8); crypto.getRandomValues(a);
+  return Array.from(a, b => "abcdefghijkmnpqrstuvwxyz23456789"[b & 31]).join("");
+}
+function duoMsg(t, bad){
+  const el = $("#duomsg"); if (!el) return;
+  el.textContent = t;
+  el.classList.remove("hide");
+  el.classList.toggle("bad", !!bad);
+  /* The message lives inside the panel, so a message with the panel
+     still hidden is a message nobody reads — which is exactly how
+     "no relay deployed" managed to look like a dead button. */
+  $("#duopanel").classList.remove("hide");
+}
+function duoDot(on, who){
+  const d = $("#duodot"), w = $("#duowho");
+  if (d) d.classList.toggle("on", !!on);
+  if (w && who) w.textContent = who;
+}
+function duoConfigured(){
+  if (DUO_RELAY) return true;
+  duoMsg("Train together needs its relay deployed first — see worker/README.md. " +
+         "Everything else in the app works without it.", true);
+  return false;
+}
+
+/* ---------------- transport ---------------- */
+
+/* Public STUN connects most calls. The ones it cannot connect —
+   symmetric NAT, most corporate and hotel wifi — need TURN, which
+   is what the relay's /ice mints. Falling back rather than failing
+   means a missing secret costs some calls, not all of them. */
+async function duoIce(){
+  if (DUO.ice) return DUO.ice;
+  const fallback = [{ urls:["stun:stun.cloudflare.com:3478","stun:stun.l.google.com:19302"] }];
+  try{
+    const r = await fetch(DUO_RELAY + "/ice", { cache:"no-store" });
+    const j = await r.json();
+    DUO.ice = (Array.isArray(j.iceServers) && j.iceServers.length) ? j.iceServers : fallback;
+  }catch(e){ DUO.ice = fallback; }
+  return DUO.ice;
+}
+function duoSocket(code){
+  return new Promise((res, rej) => {
+    let ws;
+    try{ ws = new WebSocket(DUO_RELAY.replace(/^http/, "ws") + "/room/" + code); }
+    catch(e){ rej(new Error("that relay address does not look right")); return; }
+    const t = setTimeout(() => { try{ ws.close(); }catch(e){} rej(new Error("the relay did not answer")); }, 12000);
+    ws.onopen  = () => { clearTimeout(t); res(ws); };
+    ws.onerror = () => { clearTimeout(t); rej(new Error("could not reach the relay")); };
+  });
+}
+const duoSend = m => { try{ if (DUO.ws && DUO.ws.readyState === 1) DUO.ws.send(JSON.stringify(m)); }catch(e){} };
+const duoTell = m => { try{ if (DUO.dc && DUO.dc.readyState === "open") DUO.dc.send(JSON.stringify(m)); }catch(e){} };
+
+/* ICE candidates found after the offer was posted still arrive over
+   the relay, but the offer itself waits for gathering so that a host
+   who closes their laptop still leaves something joinable behind.
+   The cap matters: some networks never fire the complete event. */
+function duoGathered(pc, ms){
+  if (pc.iceGatheringState === "complete") return Promise.resolve();
+  return new Promise(res => {
+    const done = () => { pc.removeEventListener("icegatheringstatechange", chk); clearTimeout(t); res(); };
+    const chk = () => { if (pc.iceGatheringState === "complete") done(); };
+    const t = setTimeout(done, ms || 2500);
+    pc.addEventListener("icegatheringstatechange", chk);
+  });
+}
+
+async function duoMedia(){
+  if (DUO.local) return DUO.local;
+  DUO.local = await navigator.mediaDevices.getUserMedia({
+    video:{ width:{ideal:640}, height:{ideal:960}, facingMode:"user" },
+    /* Left on deliberately. It is tuned for speech and handles music
+       poorly, but the mic is muted through the loud parts anyway —
+       see duoSegment. */
+    audio:{ echoCancellation:true, noiseSuppression:true, autoGainControl:true }
+  });
+  const n = $("#duonear");
+  n.srcObject = DUO.local; n.muted = true;
+  n.play().catch(()=>{});
+  document.body.classList.add("duocam");
+  return DUO.local;
+}
+
+async function duoNewPC(){
+  const pc = new RTCPeerConnection({ iceServers: await duoIce() });
+  if (DUO.local) DUO.local.getTracks().forEach(t => pc.addTrack(t, DUO.local));
+  pc.ontrack = e => {
+    const f = $("#duofar");
+    f.srcObject = e.streams[0];
+    f.play().catch(()=>{});
+  };
+  pc.onicecandidate = e => { if (e.candidate) duoSend({ t:"ice", c:e.candidate }); };
+  pc.onconnectionstatechange = () => {
+    const st = pc.connectionState;
+    if (st === "connected") duoLive();
+    else if (st === "failed"){
+      duoDot(false, "call failed");
+      duoMsg("The call could not connect. If either of you is on office or hotel wifi, " +
+             "that is usually why — a relay server is needed and none was available.", true);
+    }
+    else if (st === "disconnected") duoDot(false, "reconnecting…");
+  };
+  DUO.pc = pc;
+  return pc;
+}
+
+function duoWire(dc){
+  DUO.dc = dc;
+  dc.onopen = () => { duoLive(); duoSyncClock(); };
+  dc.onclose = () => duoDot(false, "they left");
+  dc.onmessage = e => { let m; try{ m = JSON.parse(e.data); }catch(_){ return; } duoFromPeer(m); };
+}
+
+function duoLive(){
+  if (DUO.connected) return;
+  if (!DUO.pc || DUO.pc.connectionState !== "connected") return;
+  if (!DUO.dc || DUO.dc.readyState !== "open") return;
+  DUO.connected = true;
+  document.body.classList.add("duo");
+  $("#duostrip").classList.remove("hide");
+  $("#tMic").classList.remove("hide");
+  $("#tCam").classList.remove("hide");
+  duoDot(true, DUO.role === "host" ? "they're in" : "connected");
+  duoMsg(DUO.role === "host"
+    ? "They're in. Start the workout when you're both ready — your clock runs both screens."
+    : "Connected. Their clock runs the session; sit tight and they'll start it.");
+  /* The relay's whole job is done. Everything after this is direct. */
+  try{ DUO.ws && DUO.ws.close(1000, "connected"); }catch(e){}
+  DUO.ws = null;
+  duoTell({ t:"hello", name: PROF.name || "" });
+  if (DUO.beat) clearInterval(DUO.beat);
+  DUO.beat = setInterval(() => { if (DUO.role === "host") duoBroadcast(); }, 3000);
+}
+
+/* ---------------- clocks ----------------
+   Round-trip offset, keeping the best sample rather than averaging:
+   a fast exchange is an honest one, a slow one just spent time in a
+   queue. peerNow = myNow + DUO.off. */
+function duoSyncClock(){
+  DUO.pings = 0;
+  if (DUO.pingTimer) clearInterval(DUO.pingTimer);
+  const fire = () => {
+    if (!DUO.dc || DUO.dc.readyState !== "open") return;
+    duoTell({ t:"ping", a: performance.now() });
+    if (++DUO.pings >= 6){ clearInterval(DUO.pingTimer); DUO.pingTimer = setInterval(fire, 15000); DUO.pings = -1e9; }
+  };
+  DUO.pingTimer = setInterval(fire, 260);
+  fire();
+}
+
+function duoFromPeer(m){
+  switch (m.t){
+    case "hello":
+      if (m.name) duoDot(true, m.name);
+      break;
+    case "ping":
+      duoTell({ t:"pong", a:m.a, b: performance.now() });
+      break;
+    case "pong": {
+      const rtt = performance.now() - m.a;
+      if (rtt < DUO.rtt){ DUO.rtt = rtt; DUO.off = m.b + rtt/2 - performance.now(); }
+      break;
+    }
+    case "clock":   if (DUO.role === "guest") duoTakeClock(m); break;
+    case "go":      if (DUO.role === "guest" && !S.timer) startWorkout(); break;
+    case "mix":     if (DUO.role === "guest") duoTakeMix(m); break;
+    case "end":     if (DUO.role === "guest" && S.timer) finish(); break;
+    case "quit":
+      if (DUO.role === "guest" && S.timer) quitRun();
+      duoMsg("They ended the session.");
+      break;
+    case "bye":     duoHangUp("They left the call."); break;
+  }
+}
+
+function duoBroadcast(){
+  if (!DUO.connected || DUO.role !== "host" || !S.segs) return;
+  duoTell({ t:"clock", idx:S.idx, running:S.running, remain:S.remain, at: performance.now() });
+}
+
+/* The guest keeps its own timer running so the display stays smooth
+   between messages; this only corrects it. Small differences are left
+   alone — snapping the clock every three seconds looks broken even
+   when it is right. */
+function duoTakeClock(m){
+  if (!S.segs || !S.segs.length) return;
+  const stamped = m.at - DUO.off;
+  const age = Math.max(0, Math.min(4000, performance.now() - stamped));
+  const remain = Math.max(0, m.running ? m.remain - age : m.remain);
+  const idx = Math.max(0, Math.min(S.segs.length - 1, m.idx));
+
+  if (idx !== S.idx){
+    S.idx = idx;
+    enterSeg(false);                       // beeps, voice, the figure — all of it
+  } else if (Math.abs(remain - S.remain) < 400 && m.running === S.running){
+    return;
+  }
+  S.remain = remain;
+  S.endAt = performance.now() + remain;
+  if (m.running !== S.running){
+    S.running = m.running;
+    if (!$("#tMusic").classList.contains("off")){ m.running ? musicResume() : musicPause(); }
+    $("#toggle").textContent = m.running ? "Pause" : "Resume";
+    $("#toggle").classList.toggle("go", !m.running);
+    keepAwake(m.running);
+  }
+  paint();
+}
+
+/* ---------------- mic ----------------
+   Open through rest, shut through work. Two people playing the same
+   mix with live mics send each other a second copy of it, offset by
+   the network — and browser echo cancellation, built for speech,
+   makes a mess of music. Muting the loud parts removes the problem
+   instead of processing it, and it matches how people actually
+   train: you talk between rounds, not mid-burpee. */
+function duoMic(on){
+  const tr = DUO.local && DUO.local.getAudioTracks()[0];
+  if (!tr) return;
+  tr.enabled = !!on;
+  DUO.micOn = !!on;
+  const b = $("#tMic");
+  if (b){ b.classList.toggle("off", !on); b.title = on ? "Mic on" : "Mic muted"; }
+  const s = $("#duomicstate");
+  if (s) s.textContent = on ? "mic on" : (DUO.micAuto ? "muted for this station" : "muted");
+}
+function duoSegment(s){
+  if (!DUO.connected) return;
+  if (DUO.micAuto) duoMic(s.type !== "work");
+  duoBroadcast();
+}
+
+/* ---------------- music ----------------
+   Neither SoundCloud nor Mixcloud will let a page read the audio out
+   of their iframe, so one side's music genuinely cannot be sent to
+   the other — each plays its own copy. All that is shared is which
+   mix and the moment to start it. After that: no seeking, ever. A
+   continuous mix reseeked mid-session is the bug that produced the
+   rule in CLAUDE.md, and two people cannot be corrected into sync
+   anyway when neither widget exposes a playback rate. */
+function duoOfferMix(){
+  if (DUO.role !== "host" || !DUO.connected || !musicActive()) return;
+  const url = MUS.savedUrl || MUS.url;
+  if (!url) return;
+  duoTell({ t:"mix", url, at: performance.now() + 1200, pct: MUS.pct, per: MUS.perStation });
+}
+async function duoTakeMix(m){
+  if (!DUO.mixWanted) return;
+  const start = () => {
+    const wait = Math.max(0, (m.at - DUO.off) - performance.now());
+    if (DUO.mixTimer) clearTimeout(DUO.mixTimer);
+    DUO.mixTimer = setTimeout(musicStart, wait);
+  };
+  MUS.on = true;
+  if (MUS.ready && musNormalize(MUS.url) === musNormalize(m.url)){ start(); return; }
+  /* Loading takes as long as it takes. A widget that is not ready
+     cannot be started on time, and starting it silently late would
+     read as broken sync rather than a slow load. Say which it is. */
+  duoMsg("Loading their mix — yours will come in a little behind theirs.");
+  if ($("#mixUrl")) $("#mixUrl").value = m.url;
+  await musUse(m.url);
+  if (MUS.ready) start();
+  else duoMsg("Could not load their mix" + (MUS.err ? ": " + MUS.err : "") +
+              ". The session runs fine without it.", true);
+}
+
+/* ---------------- hosting ---------------- */
+async function duoHost(){
+  if (DUO.busy || !duoConfigured()) return;
+  DUO.busy = true;
+  try{
+    duoMsg("Turning your camera on…");
+    await duoMedia();
+    DUO.role = "host";
+    DUO.code = duoCode();
+    DUO.link = location.origin + location.pathname + "#duo=" + DUO.code;
+    DUO.on = true;
+
+    duoMsg("Opening a room…");
+    DUO.ws = await duoSocket(DUO.code);
+    DUO.ws.onmessage = e => { let m; try{ m = JSON.parse(e.data); }catch(_){ return; } duoHostSignal(m); };
+    DUO.ws.onclose = () => { if (!DUO.connected) duoMsg("The relay closed before they joined. Make a new invite.", true); };
+
+    const pc = await duoNewPC();
+    duoWire(pc.createDataChannel("stations", { ordered:true }));
+    await pc.setLocalDescription(await pc.createOffer());
+    await duoGathered(pc);
+
+    /* The session travels with the offer, so whoever opens the link
+       sees the real stations before deciding to join. */
+    duoSend({ t:"offer", d: pc.localDescription, w: sharePayload(), by: PROF.name || "" });
+
+    duoShowInvite();
+    duoMsg("Send them the link. This screen will say when they're in.");
+  }catch(e){
+    duoMsg("Could not start: " + (e.message || e), true);
+    duoHangUp();
+  }finally{ DUO.busy = false; }
+}
+async function duoHostSignal(m){
+  try{
+    if (m.t === "answer" && DUO.pc && !DUO.pc.currentRemoteDescription){
+      await DUO.pc.setRemoteDescription(m.d);
+      duoMsg("They're joining…");
+    } else if (m.t === "ice" && DUO.pc && m.c){
+      try{ await DUO.pc.addIceCandidate(m.c); }catch(e){}
+    } else if (m.t === "peer"){
+      duoMsg("They opened the link…");
+    }
+  }catch(e){ duoMsg("Handshake failed: " + (e.message || e), true); }
+}
+
+function duoShowInvite(){
+  const p = $("#duopanel");
+  p.classList.remove("hide");
+  $("#duolink").value = DUO.link;
+  const cv = $("#duoqr");
+  try{
+    const mtx = qrEncode(DUO.link), q = mtx.length, px = 4, quiet = 4*px;
+    const size = q*px + quiet*2, dpr = Math.min(window.devicePixelRatio || 1, 3);
+    cv.width = Math.round(size*dpr); cv.height = Math.round(size*dpr);
+    cv.style.width = size + "px"; cv.style.height = size + "px";
+    const g = cv.getContext("2d");
+    g.setTransform(dpr,0,0,dpr,0,0);
+    g.fillStyle = "#fff"; g.fillRect(0,0,size,size);
+    g.fillStyle = "#000";
+    for (let r=0;r<q;r++) for (let c=0;c<q;c++) if (mtx[r][c]) g.fillRect(quiet+c*px, quiet+r*px, px, px);
+    cv.classList.remove("hide");
+  }catch(e){ cv.classList.add("hide"); }
+}
+
+/* ---------------- joining ---------------- */
+function duoBoot(){
+  const m = String(location.hash || "").match(/[#&]duo=([A-Za-z0-9_-]{4,40})/);
+  if (!m) return false;
+  DUO.code = m[1];
+  try{ history.replaceState(null, "", location.pathname + location.search); }catch(e){}
+  duoAwaitOffer();
+  return true;
+}
+async function duoAwaitOffer(){
+  if (!duoConfigured()){ show("home"); return; }
+  DUO.role = "guest";
+  DUO.on = true;
+  show("preview");
+  const banner = $("#sharedbanner");
+  if (banner){ banner.textContent = "Fetching the session they invited you to…"; banner.classList.remove("hide"); }
+  try{
+    DUO.ws = await duoSocket(DUO.code);
+    DUO.ws.onmessage = e => { let m; try{ m = JSON.parse(e.data); }catch(_){ return; } duoGuestSignal(m); };
+    DUO.ws.onclose = () => { if (!DUO.connected && !DUO.invite) duoMsg("That invite has expired. Ask them for a fresh link.", true); };
+  }catch(e){
+    if (banner) banner.textContent = "Could not reach the invite: " + (e.message || e);
+  }
+}
+async function duoGuestSignal(m){
+  if (m.t === "offer" && !DUO.invite){
+    DUO.invite = m;
+    if (m.w) applyShared(m.w);           // their exact stations, their mix prefilled
+    const who = m.by ? m.by : "They";
+    const banner = $("#sharedbanner");
+    if (banner){
+      banner.textContent = who + (m.by ? " invited you to train together." : " invited you to train together.") +
+        " Join when you're ready — their clock runs both screens.";
+      banner.classList.remove("hide");
+    }
+    $("#duopanel").classList.remove("hide");
+    $("#duoinvite").classList.remove("hide");
+    $("#duoshare").classList.add("hide");
+    $("#duomixrow").classList.toggle("hide", !(m.w && m.w.m));
+    duoMsg("Tap Join to turn your camera on and connect.");
+  } else if (m.t === "ice" && DUO.pc && m.c){
+    try{ await DUO.pc.addIceCandidate(m.c); }catch(e){}
+  } else if (m.t === "gone" && !DUO.connected){
+    duoMsg("They closed the invite before you joined.", true);
+  }
+}
+async function duoJoin(){
+  if (DUO.busy || !DUO.invite) return;
+  DUO.busy = true;
+  try{
+    duoMsg("Turning your camera on…");
+    await duoMedia();
+    const pc = await duoNewPC();
+    pc.ondatachannel = e => duoWire(e.channel);
+    await pc.setRemoteDescription(DUO.invite.d);
+    await pc.setLocalDescription(await pc.createAnswer());
+    await duoGathered(pc);
+    duoSend({ t:"answer", d: pc.localDescription, by: PROF.name || "" });
+    duoMsg("Connecting…");
+    $("#duoinvite").classList.add("hide");
+  }catch(e){
+    duoMsg("Could not join: " + (e.message || e), true);
+  }finally{ DUO.busy = false; }
+}
+
+/* ---------------- leaving ---------------- */
+function duoHangUp(why){
+  if (DUO.beat){ clearInterval(DUO.beat); DUO.beat = null; }
+  if (DUO.pingTimer){ clearInterval(DUO.pingTimer); DUO.pingTimer = null; }
+  if (DUO.mixTimer){ clearTimeout(DUO.mixTimer); DUO.mixTimer = null; }
+  try{ duoTell({ t:"bye" }); }catch(e){}
+  try{ DUO.dc && DUO.dc.close(); }catch(e){}
+  try{ DUO.pc && DUO.pc.close(); }catch(e){}
+  try{ DUO.ws && DUO.ws.close(1000, "bye"); }catch(e){}
+  if (DUO.local) DUO.local.getTracks().forEach(t => { try{ t.stop(); }catch(e){} });
+  const f = $("#duofar"), n = $("#duonear");
+  if (f) f.srcObject = null;
+  if (n) n.srcObject = null;
+  DUO.ws = DUO.pc = DUO.dc = DUO.local = null;
+  DUO.on = DUO.connected = false;
+  DUO.role = null; DUO.invite = null; DUO.off = 0; DUO.rtt = 1e9;
+  document.body.classList.remove("duo","duocam");
+  $("#duostrip").classList.add("hide");
+  $("#tMic").classList.add("hide");
+  $("#tCam").classList.add("hide");
+  $("#duopanel").classList.add("hide");
+  $("#duoinvite").classList.add("hide");
+  $("#duoshare").classList.remove("hide");
+  if (why) duoMsg(why);
+}
+
+/* A guest pressing the host's controls would only desync itself —
+   the next clock message would drag it straight back. Say why
+   instead of letting it look broken. */
+function duoGuestBlocked(){
+  if (DUO.connected && DUO.role === "guest"){
+    duoMsg("They're running the clock — ask them to pause.");
+    say("They control the clock");
+    return true;
+  }
+  return false;
+}
+
+/* ---------------- events ---------------- */
+$("#duostart").onclick = duoHost;
+$("#duojoin").onclick  = duoJoin;
+$("#duoend").onclick   = () => duoHangUp("Call ended.");
+$("#duoend2").onclick  = () => duoHangUp("You didn't join.");
+$("#duocopy").onclick  = async e => {
+  const b = e.currentTarget;
+  try{ await navigator.clipboard.writeText(DUO.link); }
+  catch(_){ $("#duolink").select(); try{ document.execCommand("copy"); }catch(e2){} }
+  const o = b.textContent; b.textContent = "Copied"; setTimeout(() => b.textContent = o, 1400);
+};
+$("#duosend").onclick = async () => {
+  if (!navigator.share) { $("#duocopy").click(); return; }
+  try{ await navigator.share({ title:"STATIONS", text:"Train this session with me — same stations, same clock.", url: DUO.link }); }
+  catch(e){ if (!e || e.name !== "AbortError") $("#duocopy").click(); }
+};
+$("#duomix").onclick = e => {
+  DUO.mixWanted = !DUO.mixWanted;
+  e.currentTarget.textContent = DUO.mixWanted ? "On" : "Off";
+  e.currentTarget.classList.toggle("on", DUO.mixWanted);
+};
+$("#tMic").onclick = () => {
+  /* A manual tap means they want it their way — stop moving it for them. */
+  DUO.micAuto = false;
+  duoMic(!DUO.micOn);
+  duoMsg(DUO.micOn ? "Mic on, and it will stay on." : "Mic muted, and it will stay muted.");
+};
+$("#tCam").onclick = () => {
+  const tr = DUO.local && DUO.local.getVideoTracks()[0];
+  if (!tr) return;
+  DUO.camOn = !DUO.camOn;
+  tr.enabled = DUO.camOn;
+  $("#tCam").classList.toggle("off", !DUO.camOn);
+};
+window.addEventListener("pagehide", () => { if (DUO.on) duoTell({ t:"bye" }); });
+
+/* =========================================================
    12. BOOT
    ========================================================= */
 S.cfg = cfgFor(PRESETS[0], goalById(S.goalId));
@@ -4000,12 +4584,17 @@ function bootMusicAndShare(){
   musRestore();
   // an incoming link wins over the home screen, but only once the music
   // controls exist for it to prefill
+  // an invite outranks a shared link, which outranks the home screen
+  if (duoBoot()) return;
   if (!shareBoot()) show("home");
 }
 if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", bootMusicAndShare);
 else bootMusicAndShare();
 if (window.matchMedia("(min-width:721px)").matches) $("#secStructure").open = true;
 </script>
+<video id="duofar" playsinline autoplay></video>
+<div id="duoscrim"></div>
+<video id="duonear" playsinline autoplay muted></video>
 <div id="mixwrap" class="hide"><div id="mixplayer"></div></div>
 </body>
 </html>
