@@ -539,6 +539,19 @@ body.mixon .foot{display:none}
   transform:scaleX(-1);display:none}
 body.duo #duofar,body.duo #duoscrim{display:block}
 body.duocam #duonear{display:block}
+/* Full-bleed is for the timer screen and nowhere else.
+   Before the workout starts there is a whole screen of things to reach —
+   the stations, the mix, and Start workout — and #preview is a plain .wrap
+   with no stacking context, so a position:fixed video sits on top of all of
+   it and eats the taps. Two real phones found this; the tests had been
+   calling startWorkout() directly and never tapped the button. Until the
+   run screen is up the partner lives in a corner tile instead. */
+#duofar{pointer-events:none}
+body.duo:not(.duorun) #duofar{
+  inset:auto auto calc(16px + var(--mixh,0px) + env(safe-area-inset-bottom)) 13px;
+  width:92px;height:132px;border-radius:14px;border:1px solid #ffffff2e;z-index:52}
+body.duo:not(.duorun) #duoscrim{display:none}
+body.duo:not(.duorun) #duonear{bottom:calc(16px + var(--mixh,0px) + env(safe-area-inset-bottom))}
 /* #run keeps its own tint so the type stays readable over whatever
    their room looks like, but stops being opaque. */
 body.duo #run{background:transparent}
@@ -3127,6 +3140,9 @@ document.addEventListener("visibilitychange", () => {
    ========================================================= */
 function show(id){
   ["home","setup","preview","run","done","history","intake"].forEach(x => $("#"+x).classList.toggle("hide", x!==id));
+  /* Drives the duo video layout: the partner only fills the screen once the
+     timer owns it. Every screen change already comes through here. */
+  document.body.classList.toggle("duorun", id === "run");
   $("#setupbar").classList.toggle("hide", id!=="setup");
   if (id === "home") homeFigStart(); else homeFigStop();
   // canvases measure 0 while the screen is display:none — paint once it's up

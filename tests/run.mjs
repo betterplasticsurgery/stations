@@ -154,12 +154,50 @@ console.log("\nduo end to end");
   await host.waitForFunction(() => DUO.rtt < 1e9, null, { timeout:10000 });
   ok("clock offset was measured", await host.evaluate(() => DUO.rtt < 5000));
 
+  /* Nothing on the connected-but-not-started screen may be covered by the
+     video. This is the bug two real phones found and the container did not:
+     the tests used to call startWorkout() directly, so nobody ever tried to
+     TAP the button, and #preview is a plain .wrap with no stacking context
+     underneath a position:fixed video. */
+  const reachable = async (pg, sel) => pg.evaluate(s => {
+    const el = document.querySelector(s);
+    if (!el) return { ok:false, why:"missing" };
+    const r = el.getBoundingClientRect();
+    if (!r.width || !r.height) return { ok:false, why:"zero size" };
+    const hit = document.elementFromPoint(r.left + r.width/2, r.top + r.height/2);
+    return { ok: !!hit && (hit === el || el.contains(hit) || hit.contains(el)),
+             why: hit ? (hit.id || hit.tagName.toLowerCase()) : "nothing" };
+  }, sel);
+
+  for (const [who, pg] of [["host", host], ["guest", guest]]){
+    const st = await reachable(pg, "#start");
+    ok(who + " can actually tap Start workout once connected", st.ok, "covered by " + st.why);
+  }
+  const bleed = await host.evaluate(() => {
+    const v = document.querySelector("#duofar");
+    const r = v.getBoundingClientRect();
+    return { full: r.width >= innerWidth * 0.95 && r.height >= innerHeight * 0.95,
+             shown: getComputedStyle(v).display !== "none" };
+  });
+  ok("partner video is visible before the workout", bleed.shown);
+  ok("but not covering the whole screen yet", !bleed.full, "full-bleed while still on preview");
+
+
   /* compress the session so the run is quick, then start it */
   await host.evaluate(() => { S.workout.halves.forEach(h => { h.work = 3; h.rest = 2; h.rounds = 1; h.stations = Math.min(2, h.stations); h.list = h.list.slice(0,2); }); S.workout.warmup = 2; S.workout.halftime = 2; S.workout.cooldown = 2; });
   await guest.evaluate(() => { S.workout.halves.forEach(h => { h.work = 3; h.rest = 2; h.rounds = 1; h.stations = Math.min(2, h.stations); h.list = h.list.slice(0,2); }); S.workout.warmup = 2; S.workout.halftime = 2; S.workout.cooldown = 2; });
-  await host.evaluate(() => startWorkout());
+  /* Click it, do not call it. Calling startWorkout() directly is what hid
+     the covered-button bug from every previous run. */
+  await host.click("#start");
+  await host.waitForFunction(() => !!S.timer, null, { timeout:10000 });
   await guest.waitForFunction(() => !!S.timer, null, { timeout:10000 });
   ok("the guest's session started from the host's go", true);
+
+  const bleedNow = await host.evaluate(() => {
+    const r = document.querySelector("#duofar").getBoundingClientRect();
+    return r.width >= innerWidth * 0.95 && r.height >= innerHeight * 0.95;
+  });
+  ok("and now the partner does fill the screen", bleedNow);
 
   await host.waitForFunction(() => S.idx >= 2, null, { timeout:20000 });
   await guest.waitForFunction(() => S.idx >= 1, null, { timeout:20000 });
