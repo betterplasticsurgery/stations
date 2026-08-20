@@ -3,6 +3,8 @@ CLAUDE.md
 
 # source art — the mark ships as inline SVG inside index.html
 *.png
+# except the social card, which has to be a real URL for Open Graph
+!og.png
 _to_delete/
 
 # agent pipeline — local working files
