@@ -576,6 +576,11 @@ body.duo .figwrap{height:min(22vh,178px)}
 .duotog{border:1px solid var(--line);border-radius:999px;padding:5px 14px;font-size:12px;font-weight:750;color:var(--dim)}
 .duotog.on{background:var(--ink);color:#000;border-color:var(--ink)}
 #duomsg.bad{color:#ff9a9a}
+.duowall .big{font-size:clamp(21px,5vw,27px);font-weight:800;letter-spacing:-.5px;line-height:1.15}
+.duowall p{color:var(--dim);font-size:13.5px;line-height:1.5;margin:9px 0 0}
+.duowall input{width:100%;margin-top:13px;background:#ffffff0d;border:1px solid var(--line);
+  border-radius:10px;padding:12px 13px;color:var(--txt);font-size:15px}
+.duoleft{font-size:11px;letter-spacing:2px;text-transform:uppercase;font-weight:800;color:var(--dim2)}
 @keyframes pulse{from{transform:scale(1)}to{transform:scale(1.06)}}
 
 /* ---------- done ---------- */
@@ -797,6 +802,18 @@ body.duo .figwrap{height:min(22vh,178px)}
         <button class="btn primary" id="duojoin">Join the call</button>
         <button class="btn" id="duoend2">Not now</button>
       </div>
+    </div>
+    <div id="duowall" class="duowall hide">
+      <div class="duoleft" id="duowalltag">Your free sessions are used up</div>
+      <div class="big" style="margin-top:8px">Keep training together?</div>
+      <p id="duowallbody"></p>
+      <input id="duoemail" type="email" inputmode="email" autocomplete="email"
+             placeholder="you@example.com" aria-label="Your email">
+      <div class="btnrow" style="margin-top:9px">
+        <button class="btn primary" id="duowantin">Tell me when it's ready</button>
+        <button class="btn" id="duowallno">Not now</button>
+      </div>
+      <p class="note" style="margin-top:10px">One email when it launches. Nothing else, ever.</p>
     </div>
     <p class="note hide" id="duomsg"></p>
   </div>
@@ -4105,8 +4122,12 @@ async function doShare(){
 const DUO_RELAY = (typeof window !== "undefined" && window.STATIONS_RELAY) ||
       "https://stations-signal.andre-rafizadeh.workers.dev";
 
+/* Set this once you have decided. Left empty the wall does not quote a
+   number, which is better than quoting one you have not chosen. */
+const DUO_PRICE = "";
+
 const DUO = {
-  on:false, role:null, code:"", link:"",
+  on:false, role:null, code:"", link:"", did:"", left:null,
   ws:null, pc:null, dc:null, local:null, ice:null,
   connected:false, busy:false, invite:null,
   off:0, rtt:1e9, pings:0, pingTimer:null, beat:null,
@@ -4121,6 +4142,52 @@ function duoCode(){
   const a = new Uint8Array(8); crypto.getRandomValues(a);
   return Array.from(a, b => "abcdefghijkmnpqrstuvwxyz23456789"[b & 31]).join("");
 }
+/* A random id in localStorage. Weak on purpose, and only for now:
+   clearing site data buys another three sessions. Phase one is finding
+   out whether anyone reaches the wall at all — asking people to make an
+   account before that is answered is asking too early. The magic-link
+   account replaces this before any money changes hands. */
+function duoDid(){
+  if (DUO.did) return DUO.did;
+  let v = "";
+  try{ v = localStorage.getItem("stations.did") || ""; }catch(e){}
+  if (!v){
+    const a = new Uint8Array(16); crypto.getRandomValues(a);
+    v = Array.from(a, b => b.toString(16).padStart(2,"0")).join("");
+    try{ localStorage.setItem("stations.did", v); }catch(e){}
+  }
+  return (DUO.did = v);
+}
+
+async function duoTrial(){
+  try{
+    const r = await fetch(DUO_RELAY + "/trial?did=" + encodeURIComponent(duoDid()), { cache:"no-store" });
+    const j = await r.json();
+    DUO.left = j.subscribed ? Infinity : Math.max(0, j.remaining || 0);
+    return j;
+  }catch(e){
+    /* If the count cannot be fetched, let them train. A billing check
+       that fails closed turns an outage into a lockout. */
+    DUO.left = null;
+    return null;
+  }
+}
+
+function duoWall(info){
+  const n = (info && info.limit) || 3;
+  $("#duopanel").classList.remove("hide");
+  $("#duoshare").classList.add("hide");
+  $("#duoinvite").classList.add("hide");
+  $("#duowall").classList.remove("hide");
+  $("#duowalltag").textContent = "You have used all " + n + " free sessions";
+  $("#duowallbody").textContent =
+    "Training together is going to become a paid feature" +
+    (DUO_PRICE ? " — " + DUO_PRICE + "." : ".") +
+    " Solo workouts stay free forever, and anyone you invite still joins for nothing." +
+    " Leave your email and we'll tell you the moment it opens.";
+  try{ $("#duoemail").focus({ preventScroll:true }); }catch(e){}
+}
+
 function duoMsg(t, bad){
   const el = $("#duomsg"); if (!el) return;
   el.textContent = t;
@@ -4162,7 +4229,8 @@ async function duoIce(){
 function duoSocket(code){
   return new Promise((res, rej) => {
     let ws;
-    try{ ws = new WebSocket(DUO_RELAY.replace(/^http/, "ws") + "/room/" + code); }
+    try{ ws = new WebSocket(DUO_RELAY.replace(/^http/, "ws") + "/room/" + code +
+                            "?did=" + encodeURIComponent(duoDid())); }
     catch(e){ rej(new Error("that relay address does not look right")); return; }
     const t = setTimeout(() => { try{ ws.close(); }catch(e){} rej(new Error("the relay did not answer")); }, 12000);
     ws.onopen  = () => { clearTimeout(t); res(ws); };
@@ -4390,6 +4458,11 @@ async function duoHost(){
   if (DUO.busy || !duoConfigured()) return;
   DUO.busy = true;
   try{
+    /* Check before asking for the camera. Prompting someone for their
+       camera and then telling them no is a small cruelty. */
+    const t = await duoTrial();
+    if (t && !t.subscribed && t.remaining <= 0){ duoWall(t); DUO.busy = false; return; }
+
     duoMsg("Turning your camera on…");
     await duoMedia();
     DUO.role = "host";
@@ -4412,7 +4485,9 @@ async function duoHost(){
     duoSend({ t:"offer", d: pc.localDescription, w: sharePayload(), by: PROF.name || "" });
 
     duoShowInvite();
-    duoMsg("Send them the link. This screen will say when they're in.");
+    duoMsg("Send them the link. This screen will say when they're in." +
+      (DUO.left !== null && DUO.left !== Infinity
+        ? "  (" + DUO.left + " free session" + (DUO.left === 1 ? "" : "s") + " left.)" : ""));
   }catch(e){
     /* Tear down FIRST, then speak. duoHangUp hides the panel the message
        lives in, so saying it first meant writing an explanation nobody
@@ -4422,6 +4497,9 @@ async function duoHost(){
   }finally{ DUO.busy = false; }
 }
 async function duoHostSignal(m){
+  /* The relay decides, not the page. A gate written in index.html is one
+     devtools tap from being deleted; a room the server will not open is not. */
+  if (m.t === "blocked"){ duoHangUp(); duoWall(m); return; }
   try{
     if (m.t === "answer" && DUO.pc && !DUO.pc.currentRemoteDescription){
       await DUO.pc.setRemoteDescription(m.d);
@@ -4540,6 +4618,7 @@ function duoHangUp(why){
   $("#tCam").classList.add("hide");
   $("#duopanel").classList.add("hide");
   $("#duoinvite").classList.add("hide");
+  $("#duowall").classList.add("hide");
   $("#duoshare").classList.remove("hide");
   if (why) duoMsg(why);
 }
@@ -4558,6 +4637,32 @@ function duoGuestBlocked(){
 
 /* ---------------- events ---------------- */
 $("#duostart").onclick = duoHost;
+$("#duowallno").onclick = () => { $("#duowall").classList.add("hide"); $("#duopanel").classList.add("hide"); };
+$("#duowantin").onclick = async e => {
+  const b = e.currentTarget, email = $("#duoemail").value.trim();
+  b.disabled = true;
+  const was = b.textContent; b.textContent = "Sending…";
+  try{
+    const r = await fetch(DUO_RELAY + "/interest", {
+      method:"POST", headers:{ "Content-Type":"application/json" },
+      body: JSON.stringify({ email, did: duoDid() })
+    });
+    const j = await r.json();
+    if (j.ok){
+      $("#duowall").innerHTML =
+        '<div class="duoleft">Thank you</div>' +
+        '<div class="big" style="margin-top:8px">You\'re on the list.</div>' +
+        '<p>One email when it opens. Go do a solo session in the meantime — ' +
+        'those never cost anything.</p>';
+    } else {
+      b.disabled = false; b.textContent = was;
+      duoMsg(j.error || "That did not save. Try again?", true);
+    }
+  }catch(err){
+    b.disabled = false; b.textContent = was;
+    duoMsg("Could not reach the server. Try again in a moment?", true);
+  }
+};
 $("#duojoin").onclick  = duoJoin;
 $("#duoend").onclick   = () => duoHangUp("Call ended.");
 $("#duoend2").onclick  = () => duoHangUp("You didn't join.");

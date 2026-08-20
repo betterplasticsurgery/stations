@@ -5,7 +5,7 @@ import { chromium } from "playwright";
 import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
-import { startRelay } from "./relay.mjs";
+import { startRelay, FREE_CALLS } from "./relay.mjs";
 
 const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..");
 let pass = 0, fail = 0;
@@ -114,6 +114,65 @@ console.log("\ndeployed relay");
   const url = await p.evaluate(() => DUO_RELAY);
   ok("DUO_RELAY is filled in", /^https:\/\/.+/.test(url), url);
   ok("and is not a placeholder", !/<|your-worker|example/.test(url), url);
+  await ctx.close();
+}
+
+/* ---- 4c. the free-session wall ---- */
+console.log("\nthe wall");
+{
+  const ctx = await browser.newContext({ permissions:["camera","microphone"] });
+  const p = await newPage(ctx, { relay:true });
+  await p.goto(BASE);
+  const did = await p.evaluate(() => duoDid());
+  ok("a device id is minted and kept", /^[0-9a-f]{32}$/.test(did), did);
+
+  await fetch(`${RELAY}/__spend?did=${did}&n=${FREE_CALLS}`);   // burn the trial
+
+  const camAsked = [];
+  p.on("console", m => camAsked.push(m.text()));
+  await p.evaluate(() => { generateWorkout(); show("preview"); });
+  await p.click("#duostart");
+  await p.waitForSelector("#duowall:not(.hide)", { timeout:10000 });
+  ok("the wall appears instead of a call", true);
+  ok("no camera was requested first", await p.evaluate(() => !DUO.local));
+  ok("it says how many were free", /all 3 free sessions/i.test(await p.textContent("#duowalltag")));
+  ok("it promises solo stays free", /solo workouts stay free/i.test(await p.textContent("#duowallbody")));
+
+  /* a bad address is refused, and says so */
+  await p.fill("#duoemail", "not-an-email");
+  await p.click("#duowantin");
+  await p.waitForSelector("#duomsg:not(.hide)", { timeout:8000 });
+  ok("a malformed email is rejected with a reason", /does not look like an email/i.test(await p.textContent("#duomsg")));
+  ok("and the button comes back", await p.evaluate(() => !document.querySelector("#duowantin").disabled));
+
+  await p.fill("#duoemail", "andre+test@example.com");
+  await p.click("#duowantin");
+  await p.waitForFunction(() => /on the list/i.test(document.querySelector("#duowall").textContent),
+                          null, { timeout:8000 });
+  ok("a good email is accepted and confirmed", true);
+  const stored = await (await fetch(`${RELAY}/__interest`)).json();
+  ok("and it actually reached the relay", stored.some(([e]) => e === "andre+test@example.com"),
+     JSON.stringify(stored));
+  await ctx.close();
+}
+
+/* ---- 4d. the gate is the server's, not the page's ---- */
+console.log("\nthe gate cannot be edited around");
+{
+  const ctx = await browser.newContext({ permissions:["camera","microphone"] });
+  const p = await newPage(ctx, { relay:true });
+  await p.goto(BASE);
+  const did = await p.evaluate(() => duoDid());
+  await fetch(`${RELAY}/__spend?did=${did}&n=${FREE_CALLS}`);
+  /* Pretend the client lies: skip the check entirely and open a room
+     the way a tampered page would. The relay must still refuse. */
+  const verdict = await p.evaluate(relay => new Promise(res => {
+    const ws = new WebSocket(relay.replace(/^http/, "ws") + "/room/tampered1?did=" + duoDid());
+    ws.onmessage = e => res(JSON.parse(e.data));
+    ws.onerror = () => res({ t:"error" });
+    setTimeout(() => res({ t:"timeout" }), 8000);
+  }), RELAY);
+  ok("the relay blocks a tampered client", verdict.t === "blocked", JSON.stringify(verdict));
   await ctx.close();
 }
 

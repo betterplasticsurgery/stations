@@ -8,11 +8,20 @@
    and a room's contents are dropped the moment both sides leave
    or ROOM_TTL_MS elapses — whichever comes first.
 
+   It is also the only place a paywall can honestly live. A price
+   gate written into index.html is worth nothing — the source is
+   public and devtools is one tap away. But a duo call physically
+   cannot happen without this relay, so refusing to open a room is
+   a gate that cannot be edited around.
+
    Routes
-     GET /ice            → ICE servers. Cloudflare TURN when the
-                           secrets are set, public STUN otherwise.
-     GET /room/<code>    → WebSocket. Everything sent is relayed
-                           verbatim to the other side of the room.
+     GET  /ice            → ICE servers. Cloudflare TURN when the
+                            secrets are set, public STUN otherwise.
+     GET  /room/<code>    → WebSocket. Everything sent is relayed
+                            verbatim to the other side of the room.
+     GET  /trial?did=     → how many free sessions are left.
+     POST /interest       → an email from someone who hit the wall.
+     GET  /interest/export?key= → that list, for you. Needs ADMIN_KEY.
 
    Deploy: see worker/README.md
    ========================================================= */
@@ -22,6 +31,7 @@ import { DurableObject } from "cloudflare:workers";
 const ROOM_TTL_MS = 30 * 60 * 1000;   // a room is for joining, not for living in
 const MAX_PEERS   = 2;                 // duo means two
 const MAX_MSG     = 96 * 1024;         // an SDP offer is ~2.5 KB; this is generous
+const FREE_CALLS  = 3;                 // "your first workout on us", three times over
 
 /* The page is served from GitHub Pages and from the custom domain, and
    from localhost while someone is working on it. Anything else is not
@@ -38,7 +48,7 @@ function corsFor(req){
   const ok = ALLOWED.includes(o) || /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(o);
   return {
     "Access-Control-Allow-Origin": ok ? o : ALLOWED[0],
-    "Access-Control-Allow-Methods": "GET,OPTIONS",
+    "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type",
     "Access-Control-Max-Age": "86400"
   };
@@ -47,6 +57,8 @@ function corsFor(req){
 const PUBLIC_STUN = [
   { urls: ["stun:stun.cloudflare.com:3478", "stun:stun.l.google.com:19302"] }
 ];
+
+const ledger = env => env.LEDGER.get(env.LEDGER.idFromName("v1"));
 
 export default {
   async fetch(req, env, ctx){
@@ -60,6 +72,32 @@ export default {
         headers: { ...cors, "Content-Type":"application/json",
                    "Cache-Control":"no-store" }
       });
+    }
+
+    if (url.pathname === "/trial"){
+      const did = (url.searchParams.get("did") || "").slice(0, 64);
+      const r = await ledger(env).fetch(new Request("https://l/state?did=" + encodeURIComponent(did)));
+      return new Response(await r.text(), {
+        headers: { ...cors, "Content-Type":"application/json", "Cache-Control":"no-store" }});
+    }
+
+    if (url.pathname === "/interest" && req.method === "POST"){
+      let body = {};
+      try{ body = await req.json(); }catch(e){}
+      const r = await ledger(env).fetch(new Request("https://l/interest", {
+        method:"POST", body: JSON.stringify(body || {}) }));
+      return new Response(await r.text(), { status:r.status,
+        headers: { ...cors, "Content-Type":"application/json" }});
+    }
+
+    /* Deliberately not clever: one shared secret, and without it set the
+       list simply is not reachable from the internet. */
+    if (url.pathname === "/interest/export"){
+      if (!env.ADMIN_KEY || url.searchParams.get("key") !== env.ADMIN_KEY)
+        return new Response("nope", { status:404, headers:cors });
+      const r = await ledger(env).fetch(new Request("https://l/export"));
+      return new Response(await r.text(), {
+        headers: { ...cors, "Content-Type":"text/csv", "Cache-Control":"no-store" }});
     }
 
     const m = url.pathname.match(/^\/room\/([A-Za-z0-9_-]{4,40})$/);
@@ -107,6 +145,28 @@ export class Room extends DurableObject {
     if (live.length >= MAX_PEERS)
       return new Response("room is full", { status:409 });
 
+    const did = (new URL(req.url).searchParams.get("did") || "").slice(0, 64);
+    const first = live.length === 0;
+
+    /* The host is the one who needs standing. Whoever they invite gets in
+       free — a subscription nobody can share is a subscription nobody can
+       recommend, and the invited friend is exactly who you want to reach. */
+    if (first){
+      const v = await this.env.LEDGER.get(this.env.LEDGER.idFromName("v1"))
+        .fetch(new Request("https://l/check?did=" + encodeURIComponent(did)));
+      const j = await v.json();
+      if (!j.allowed){
+        const pair = new WebSocketPair();
+        const [client, server] = Object.values(pair);
+        server.accept();
+        server.send(JSON.stringify({ t:"blocked", used:j.used, limit:j.limit }));
+        server.close(1008, "trial spent");
+        return new Response(null, { status:101, webSocket: client });
+      }
+      await this.ctx.storage.deleteAll();     // a fresh room, whatever was here before
+      await this.ctx.storage.put("host", did);
+    }
+
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair);
 
@@ -115,8 +175,16 @@ export class Room extends DurableObject {
        hibernated socket is not billed for that wait. */
     this.ctx.acceptWebSocket(server);
 
-    const first = live.length === 0;
     server.serializeAttachment({ host: first });
+
+    /* A session is spent when someone actually turns up, not when an
+       invite is made. Otherwise a link nobody opens costs a workout. */
+    if (!first){
+      const host = await this.ctx.storage.get("host");
+      if (host) this.env.LEDGER.get(this.env.LEDGER.idFromName("v1"))
+        .fetch(new Request("https://l/spend?did=" + encodeURIComponent(host)))
+        .catch(() => {});
+    }
 
     /* The host arrives, posts an offer, and closes their laptop. Whoever
        opens the link minutes later still needs that offer, so it is held
@@ -125,7 +193,6 @@ export class Room extends DurableObject {
       const kept = await this.ctx.storage.get("offer");
       if (kept) try{ server.send(kept); }catch(e){}
     } else {
-      await this.ctx.storage.deleteAll();
       await this.ctx.storage.setAlarm(Date.now() + ROOM_TTL_MS);
     }
 
@@ -164,5 +231,100 @@ export class Room extends DurableObject {
   async alarm(){
     await this.ctx.storage.deleteAll();
     for (const p of this.ctx.getWebSockets()) try{ p.close(1000, "expired"); }catch(e){}
+  }
+}
+
+
+/* =========================================================
+   The ledger — free sessions, and the people who asked for more.
+   =========================================================
+   One instance, keyed "v1". At this scale a single Durable Object is
+   the whole database, and using one means there is no dashboard
+   resource to create by hand: the class ships in wrangler.toml and
+   appears on the next push.
+
+   `did` is a random id the browser keeps in localStorage. It is a weak
+   identity and known to be one — clearing site data buys another three
+   sessions. That is a deliberate phase-one trade: the point right now
+   is to find out whether anyone reaches the wall at all, and a login
+   asked for before that question is answered is a login asked too
+   early. The magic-link account replaces it before money changes hands.
+   ========================================================= */
+export class Ledger extends DurableObject {
+
+  constructor(state, env){
+    super(state, env);
+    this.sql = state.storage.sql;
+    this.sql.exec(`CREATE TABLE IF NOT EXISTS trials(
+      did TEXT PRIMARY KEY, used INTEGER NOT NULL DEFAULT 0,
+      first_seen INTEGER NOT NULL, last_seen INTEGER NOT NULL)`);
+    this.sql.exec(`CREATE TABLE IF NOT EXISTS interest(
+      email TEXT PRIMARY KEY, did TEXT, at INTEGER NOT NULL, used INTEGER)`);
+  }
+
+  row(did){
+    const r = [...this.sql.exec("SELECT used FROM trials WHERE did = ?", did)];
+    return r.length ? r[0].used : 0;
+  }
+
+  async fetch(req){
+    const url = new URL(req.url);
+    const did = (url.searchParams.get("did") || "").slice(0, 64);
+    const now = Date.now();
+    const json = (o, status) => new Response(JSON.stringify(o),
+      { status: status || 200, headers:{ "Content-Type":"application/json" }});
+
+    switch (url.pathname){
+
+      /* Read-only. Used to show "2 of 3 left" before anyone commits. */
+      case "/state": {
+        const used = did ? this.row(did) : 0;
+        return json({ used, limit:FREE_CALLS, remaining: Math.max(0, FREE_CALLS - used),
+                      subscribed:false });
+      }
+
+      /* Asked before a room opens. A missing did is treated as spent —
+         a client that will not identify itself does not get free calls. */
+      case "/check": {
+        if (!did) return json({ allowed:false, used:FREE_CALLS, limit:FREE_CALLS });
+        const used = this.row(did);
+        return json({ allowed: used < FREE_CALLS, used, limit:FREE_CALLS });
+      }
+
+      /* Fire-and-forget from the Room when a second person turns up. */
+      case "/spend": {
+        if (!did) return json({ ok:false });
+        this.sql.exec(
+          `INSERT INTO trials(did, used, first_seen, last_seen) VALUES(?, 1, ?, ?)
+           ON CONFLICT(did) DO UPDATE SET used = used + 1, last_seen = excluded.last_seen`,
+          did, now, now);
+        return json({ ok:true, used: this.row(did) });
+      }
+
+      case "/interest": {
+        let b = {};
+        try{ b = await req.json(); }catch(e){}
+        const email = String(b.email || "").trim().slice(0, 254);
+        /* Deliberately loose. Bouncing a real address because it has a
+           plus in it is worse than storing one typo. */
+        if (!/^[^@\s]+@[^@\s.]+\.[^@\s]+$/.test(email))
+          return json({ ok:false, error:"that does not look like an email" }, 400);
+        const who = String(b.did || "").slice(0, 64);
+        this.sql.exec(
+          `INSERT INTO interest(email, did, at, used) VALUES(?, ?, ?, ?)
+           ON CONFLICT(email) DO UPDATE SET at = excluded.at, did = excluded.did`,
+          email, who, now, who ? this.row(who) : 0);
+        return json({ ok:true });
+      }
+
+      case "/export": {
+        const rows = [...this.sql.exec("SELECT email, at, used FROM interest ORDER BY at DESC")];
+        const csv = ["email,signed_up_utc,sessions_used"]
+          .concat(rows.map(r => [r.email, new Date(r.at).toISOString(), r.used].join(",")))
+          .join("\n");
+        return new Response(csv + "\n", { headers:{ "Content-Type":"text/csv" }});
+      }
+    }
+    return new Response("no", { status:404 });
   }
 }
