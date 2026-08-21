@@ -1,15 +1,24 @@
 /* Shared by the landing pages only. index.html carries its own styles and
    stays a single self-contained file. */
 :root{
-  --bg:#000; --panel:#0d0d0f; --line:#26262b;
-  --txt:#fff; --dim:#9b9ba4; --dim2:#66666e; --ink:#fff;
+  /* Same ground as the app, minus the marks — a visitor who lands here and
+     clicks through should not feel they changed sites. The gesture layer
+     stays in index.html; these pages are meant to be read. */
+  --bg:#0a1620; --panel:#0e1d26; --line:#2b4552;
+  --txt:#fff; --dim:#c9d6de; --dim2:#a5b8c4; --ink:#fff;
   --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;
   --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
 }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html{scroll-behavior:smooth}
-body{margin:0;background:var(--bg);color:var(--txt);font-family:var(--sans);
-  line-height:1.6;-webkit-font-smoothing:antialiased}
+body{margin:0;color:var(--txt);font-family:var(--sans);
+  line-height:1.6;-webkit-font-smoothing:antialiased;
+  background:var(--bg) fixed;
+  background-image:
+    radial-gradient(122% 80% at 50% 110%, rgba(40,92,90,.42) 0%, rgba(40,92,90,0) 62%),
+    linear-gradient(180deg,#33465a 0%, #24404f 15%, #1b3746 36%,
+                            #142c3a 55%, #17323c 77%, #22414a 100%);
+  background-attachment:fixed}
 .wrap{max-width:720px;margin:0 auto;padding:26px 20px 72px}
 a{color:var(--txt)}
 header.top{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-bottom:34px}
@@ -31,7 +40,7 @@ li{margin:6px 0}
 /* ---- the timer ---- */
 .t{border:1px solid var(--line);border-radius:18px;padding:22px 20px 20px;margin:26px 0 8px;
   background:var(--panel);text-align:center;transition:background .2s}
-.t.rest,.t.prep{background:#08080a}
+.t.rest,.t.prep{background:#08171e}
 .t-phase{font-size:11px;letter-spacing:3.4px;text-transform:uppercase;font-weight:800;color:var(--dim2)}
 .t-clock{font-family:var(--mono);font-weight:800;letter-spacing:-4px;line-height:.9;
   font-size:clamp(66px,19vw,118px);font-variant-numeric:tabular-nums;margin:8px 0 2px}

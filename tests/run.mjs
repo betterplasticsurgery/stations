@@ -697,6 +697,63 @@ console.log("\nduo end to end");
   await ctx.close();
 }
 
+/* ---- 21. the painted ground stays decorative ----
+   A full-screen background layer is one z-index mistake away from eating
+   every tap on the app — the same class of bug the duo video already
+   caused once. And a working interval has to stay opaque: the whole
+   argument for painting the app is that the paint gets out of the way
+   when the clock is the only thing that matters. */
+console.log("\nthe painted ground");
+{
+  const ctx = await browser.newContext();
+  const p = await newPage(ctx);
+  await p.goto(BASE);
+  await p.waitForTimeout(3200);
+
+  const layers = await p.evaluate(() => ["#paint","#veil"].map(sel => {
+    const el = document.querySelector(sel);
+    if (!el) return { sel, missing:true };
+    const cs = getComputedStyle(el);
+    return { sel, z:Number(cs.zIndex), pe:cs.pointerEvents };
+  }));
+  ok("both paint layers exist", layers.every(l => !l.missing), JSON.stringify(layers));
+  ok("and sit behind the content", layers.every(l => l.z < 0), JSON.stringify(layers));
+  ok("and cannot be hit by a pointer", layers.every(l => l.pe === "none"), JSON.stringify(layers));
+
+  /* the real test: can you still press the only button on the home screen */
+  const hit = await p.evaluate(() => {
+    const el = document.querySelector("#homego");
+    const r = el.getBoundingClientRect();
+    const top = document.elementFromPoint(r.left + r.width/2, r.top + r.height/2);
+    return { ok: top === el || el.contains(top), why: top ? (top.id || top.tagName.toLowerCase()) : "nothing" };
+  });
+  ok("Build my session is still tappable through the paint", hit.ok, "covered by " + hit.why);
+
+  /* work goes black; every other segment lets the painting back in */
+  const bg = await p.evaluate(() => {
+    const run = document.querySelector("#run");
+    const was = run.className, out = {};
+    for (const cls of ["work","rest","warmup","halftime","cooldown"]){
+      run.className = cls; out[cls] = getComputedStyle(run).backgroundColor;
+    }
+    run.className = was;
+    return out;
+  });
+  const opaque = c => !/rgba\(/.test(c) || /,\s*1\)$/.test(c);
+  ok("a working interval is fully opaque", opaque(bg.work), bg.work);
+  ok("and rest is not", !opaque(bg.rest), bg.rest);
+  ok("nor warm-up, halftime or cool-down",
+     !opaque(bg.warmup) && !opaque(bg.halftime) && !opaque(bg.cooldown),
+     [bg.warmup,bg.halftime,bg.cooldown].join(" "));
+
+  /* the marks are inline; nothing about the look may add a request */
+  const external = [];
+  ctx.on("request", r => { if (!r.url().startsWith("http://127.0.0.1:")) external.push(r.url()); });
+  await p.reload({ waitUntil:"networkidle" });
+  ok("the artwork costs no network request", external.length === 0, external.join(", "));
+  await ctx.close();
+}
+
 await relay.close(); await site.close(); await browser.close();
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
