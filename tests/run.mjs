@@ -754,6 +754,110 @@ console.log("\nthe painted ground");
   await ctx.close();
 }
 
+/* ---- 22. the camera only wakes for stations it can count ----
+   The scheduling is the part written here; the pose model is not ours to
+   test and needs ten megabytes and a room. So the module is stubbed
+   through the same seam the relay uses, and what is checked is the thing
+   that can regress: that a phone does not spend forty-five minutes doing
+   inference for two stations, and that a wall sit never opens a camera. */
+console.log("\nrep counting — when the camera wakes");
+
+const REP_STUB = () => {
+  window.__reps = { arm:[], warm:0, disarm:0, stop:0, armed:false };
+  window.STATIONS_REPS = {
+    init(){}, load(){ return Promise.resolve(true); },
+    countable(n){ return ["Air Squat","Push-Up","Burpee","Jumping Jack","Goblet Squat"].includes(n); },
+    warm(){ window.__reps.warm++; return Promise.resolve(true); },
+    arm(n){ window.__reps.arm.push(n); window.__reps.armed = true; return Promise.resolve(true); },
+    disarm(){ window.__reps.disarm++; window.__reps.armed = false;
+              return { n:9, gap:2000, drift: window.__fade ? 0.6 : 0.95,
+                       faded: !!window.__fade }; },
+    stop(){ window.__reps.stop++; window.__reps.armed = false; },
+    armed(){ return window.__reps.armed; },
+    count(){ return 0; }
+  };
+};
+
+async function runWith(exercises, on, fade){
+  const ctx = await browser.newContext();
+  const p = await newPage(ctx);
+  await p.addInitScript(REP_STUB);
+  await p.addInitScript(v => { try{ localStorage.setItem("stations.reps", v); }catch(e){} }, on ? "1" : "0");
+  const cam = [];
+  await p.addInitScript(() => {
+    window.__gum = 0;
+    const real = navigator.mediaDevices && navigator.mediaDevices.getUserMedia;
+    if (real) navigator.mediaDevices.getUserMedia = function(...a){ window.__gum++; return real.apply(this, a); };
+  });
+  await p.goto(BASE);
+  /* Listen to the coach rather than reading its mind: what matters is the
+     sentence a person actually hears. */
+  await p.evaluate(f => {
+    window.__fade = f; window.__said = [];
+    const real = window.coachSpeak;
+    window.coachSpeak = (text, id) => { window.__said.push(text); return real(text, id); };
+    CO.on = true; S.voice = true;
+  }, !!fade);
+  await p.evaluate(list => {
+    S.workout = null;
+    document.querySelector("#homego").click();
+  }, exercises).catch(()=>{});
+  await p.evaluate(() => { const b = document.querySelector("#build"); if (b) b.click(); });
+  await p.waitForTimeout(300);
+  await p.evaluate(list => {
+    S.workout.halves.forEach((h,i) => {
+      h.work = 2; h.rest = 2; h.rounds = 1; h.stations = list.length;
+      h.list = list.map(n => LIB.find(x => x.n === n));
+    });
+    S.workout.warmup = 1; S.workout.halftime = 1; S.workout.cooldown = 1;
+  }, exercises);
+  await p.click("#start");
+  await p.waitForFunction(() => !S.running && !document.querySelector("#done").classList.contains("hide"),
+                          null, { timeout: 40000 }).catch(()=>{});
+  const out = await p.evaluate(() => ({ ...window.__reps, gum: window.__gum, said: window.__said }));
+  await ctx.close();
+  return out;
+}
+
+{
+  const r = await runWith(["Air Squat","Wall Sit","Farmer Carry"], true);
+  ok("it arms on the squat", r.arm.includes("Air Squat"), JSON.stringify(r.arm));
+  ok("and never on the wall sit or the carry",
+     !r.arm.includes("Wall Sit") && !r.arm.includes("Farmer Carry"), JSON.stringify(r.arm));
+  ok("it warms the sensor ahead of a countable station", r.warm > 0, String(r.warm));
+  ok("and shuts down by the end", r.stop > 0 || !r.armed, JSON.stringify(r));
+}
+{
+  /* The count replaces the rest line rather than being added to it: the
+     coach's whole credibility is that it does not fill every gap. */
+  const r = await runWith(["Air Squat","Wall Sit","Farmer Carry"], true);
+  const said = (r.said || []).join(" | ");
+  ok("the count is spoken at the rest that follows", /\b9\b/.test(said), said);
+  ok("and it names what is coming, so the rest line is not lost",
+     (r.said||[]).some(l => /\b9\b/.test(l) && /Wall Sit|Farmer Carry/.test(l)), said);
+}
+{
+  const r = await runWith(["Air Squat","Wall Sit","Farmer Carry"], true, true);
+  const said = (r.said || []).join(" | ");
+  ok("a set that shortened gets said differently",
+     /short|smaller|range|depth|half/i.test(said), said);
+  /* Only the rep lines are in scope — "come back" in the sign-off is not
+     a claim about anybody's spine. */
+  const repLines = (r.said||[]).filter(l => /\b9\b/.test(l)).join(" | ");
+  ok("and it still never claims anything about form",
+     !/knee|spine|posture|\bform\b|lower back|injur/i.test(repLines), repLines);
+}
+{
+  const r = await runWith(["Wall Sit","Farmer Carry","Ski Erg"], true);
+  ok("a session with nothing to count never arms", r.arm.length === 0, JSON.stringify(r.arm));
+  ok("and never opens a camera", r.gum === 0, String(r.gum));
+}
+{
+  const r = await runWith(["Air Squat","Push-Up","Burpee"], false);
+  ok("with the setting off it does nothing at all",
+     r.arm.length === 0 && r.warm === 0 && r.gum === 0, JSON.stringify(r));
+}
+
 await relay.close(); await site.close(); await browser.close();
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

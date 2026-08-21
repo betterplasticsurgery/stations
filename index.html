@@ -648,6 +648,26 @@ body.duo .clock,body.duo .exname,body.duo .phase{text-shadow:0 2px 22px #000}
 /* the partner is already a moving body to copy — the demo figure
    gives up some room rather than competing with them */
 body.duo .figwrap{height:min(22vh,178px)}
+/* ---- rep counting ----
+   The count sits under the exercise name because that is what it is
+   about, and the self-view is small and in the corner because its only
+   job is to answer "am I in frame" — it is not a mirror to train in. */
+#repbox{margin-top:12px;min-height:26px;display:none;align-items:baseline;justify-content:center;gap:9px}
+#run.work.counting #repbox{display:flex}
+#repn{font-family:var(--mono);font-weight:800;font-size:30px;line-height:1;
+  font-variant-numeric:tabular-nums;letter-spacing:-1px}
+#repn.pop{animation:reppop .22s ease}
+@keyframes reppop{0%{transform:scale(1)}45%{transform:scale(1.22)}100%{transform:scale(1)}}
+#repw{font-size:11px;letter-spacing:1.8px;text-transform:uppercase;font-weight:800;color:var(--dim2)}
+#repnote{font-size:12px;color:var(--dim2);margin-top:4px;min-height:15px;text-align:center;
+  padding:0 18px;display:none}
+#run.counting #repnote{display:block}
+#repcam{position:fixed;right:13px;top:calc(78px + env(safe-area-inset-top));
+  width:66px;height:88px;object-fit:cover;border-radius:11px;border:1px solid #ffffff26;
+  z-index:52;background:#08171e;transform:scaleX(-1);display:none}
+body.repcam #repcam{display:block}
+/* In a call the partner already owns the bottom corners. */
+body.duo #repcam{display:none}
 #duostrip{display:flex;align-items:center;justify-content:center;gap:9px;padding:0 16px 6px;
   font-size:11.5px;color:var(--dim);letter-spacing:.2px}
 #duostrip .ddot{width:7px;height:7px;border-radius:50%;background:#5a5a64;flex:none}
@@ -826,6 +846,24 @@ body.duo .figwrap{height:min(22vh,178px)}
     </div>
   </details>
 
+  <details class="sec" id="secReps">
+    <summary><span class="sh">Count my reps</span><span class="sv" id="repSum">Off</span><span class="sc">›</span></summary>
+    <div class="secbody">
+      <div class="fld" style="border-bottom:none">
+        <label style="font-size:14.5px;color:var(--txt);font-weight:650">Use the camera to count reps</label>
+        <button class="chip" id="rToggle" style="min-width:88px;min-height:42px;padding:10px 12px">Off</button>
+      </div>
+      <p class="hint" id="repHint"></p>
+      <p class="hint"><b>The camera only wakes for stations it can count</b>, a few seconds before each
+        one, and switches off again the moment the interval ends. It is off through every rest, every
+        hold and every machine station.</p>
+      <p class="hint"><b>Nothing leaves your phone.</b> The video is never recorded, never uploaded and
+        never sent to your training partner — it is read frame by frame on the device and thrown away.
+        What gets saved is a number. Loading the model needs a connection the first time; everything
+        else about the app still works with the wifi off.</p>
+    </div>
+  </details>
+
   <details class="sec" id="secMusic">
     <summary><span class="sh">Music</span><span class="sv" id="musicSum">Off</span><span class="sc">›</span></summary>
     <div class="secbody">
@@ -978,6 +1016,8 @@ body.duo .figwrap{height:min(22vh,178px)}
     <div class="clock" id="clock">3:00</div>
     <div class="exname" id="exname"></div>
     <div class="excue" id="excue"></div>
+    <div id="repbox"><span id="repn">0</span><span id="repw">reps</span></div>
+    <div id="repnote"></div>
     <div class="nextup" id="nextup"></div>
     <div class="counters">
       <div><div class="k">Half</div><div class="v" id="cHalf">—</div></div>
@@ -986,6 +1026,7 @@ body.duo .figwrap{height:min(22vh,178px)}
       <div><div class="k">Left</div><div class="v" id="cLeft">45:00</div></div>
     </div>
   </div>
+  <video id="repcam" playsinline muted autoplay></video>
   <div id="duostrip" class="hide"><span class="ddot" id="duodot"></span><span id="duowho">connecting…</span><span id="duomicstate"></span></div>
   <div id="nowplaying" class="hide"><span class="npdot"></span><span id="npTrack"></span></div>
   <div class="ctrls">
@@ -3335,6 +3376,8 @@ function startWorkout(){
   if (!(DUO.connected && DUO.role === "guest")) musicStart();
   if (DUO.connected && DUO.role === "host"){ duoTell({ t:"go" }); duoOfferMix(); }
   beep(880, .12);
+  RP.total = 0; RP.sets = 0; RP.last = null;
+  repBoot();                      // start the download now, do not wait on it
   enterSeg(true);
   S.running = true;
   $("#toggle").textContent = "Pause"; $("#toggle").classList.remove("go");
@@ -3369,6 +3412,7 @@ function enterSeg(first){
 
   }
   if (s.type === "work" && !first) beep(1200, .16, .3);
+  repSegment(s, first);
   coachSegment(s, first);
   if (DUO.on) duoSegment(s);
   $("#cHalf").textContent    = s.half==null ? "—" : (s.half+1)+"/"+S.workout.halves.length;
@@ -3417,6 +3461,7 @@ function finish(){
   musicStop();
   if (DUO.connected && DUO.role === "host") duoTell({ t:"end" });
   clearInterval(S.timer); S.timer = null; S.running = false; keepAwake(false);
+  repEnd();
   beep(660,.16); setTimeout(()=>beep(880,.16),170); setTimeout(()=>beep(1320,.35),340);
   const work = S.segs.filter(s=>s.type==="work");
   const workSec = work.reduce((a,s)=>a+s.dur,0);
@@ -3440,6 +3485,7 @@ function finish(){
     sets: work.length,
     kcal,
     ex: [...new Set(work.map(s => s.label))],
+    reps: RP.sets ? { total: RP.total, sets: RP.sets } : null,
     rpe: null
   });
   coachFinish();
@@ -3454,6 +3500,7 @@ function finish(){
 function quitRun(){
   figStop();
   musicStop();
+  repEnd();
   if (DUO.connected && DUO.role === "host") duoTell({ t:"quit" });
   clearInterval(S.timer); S.timer = null; S.running = false; keepAwake(false);
   try{ speechSynthesis.cancel(); }catch(e){}
@@ -4980,6 +5027,15 @@ const COACHES = {
             "Final round. Nothing saved."],
       final:["Last station. All of it.",
              "This is the last one. Empty the tank."],
+      reps:["{n}. {next} next.",
+            "{n} reps. Rest, then {next}.",
+            "That is {n}. {next} is coming — set up for it.",
+            "{n}. Breathe. {next} after this."],
+      repsNoNext:["{n}. That is the last of them.",
+                  "{n} reps. Done."],
+      fade:["{n} — but the last few were shorter than the first few. Full range next time. {next} is up.",
+            "{n}. Your range dropped off at the end. Slow down before you shorten up. {next} next.",
+            "{n}, and the depth went at the end. Fewer and honest beats more and half. {next} is coming."],
       rest:["Rest. {next} is coming.",
             "Breathe. {next} next — set up while you can.",
             "Recover properly. {next} after this.",
@@ -5031,6 +5087,15 @@ const COACHES = {
             "Final round. If you have anything left you have been cheating."],
       final:["Last one. Leave nothing on the floor.",
              "This is it. Do not insult me at the finish."],
+      reps:["{n}. Not impressed. {next}.",
+            "{n} reps. I have seen more. {next} is next.",
+            "{n}. Remember that number. Beat it. {next}.",
+            "{n}. Fine. Now {next}."],
+      repsNoNext:["{n}. That is what you had.",
+                  "{n} reps and we are done. Remember it."],
+      fade:["{n}, and half of them were short. Short reps do not count in here. {next}.",
+            "{n}. You shrank at the end. That is not fatigue, that is a decision. {next} next.",
+            "{n} — the last ones barely moved. Do it properly or do not do it. {next}."],
       rest:["Rest. {next} next. Stay on your feet.",
             "Breathe. {next} is coming and it will not wait.",
             "Twenty seconds of mercy. {next} after. Get ready.",
@@ -5084,6 +5149,15 @@ const COACHES = {
             "Final round of this half. Be embarrassing about it."],
       final:["Last station. If you have anything left you lied to me earlier.",
              "This is the last one. Go absolutely feral."],
+      reps:["{n}. I counted. I count everything. {next} now.",
+            "{n} reps. I wrote it down. In my mind. Forever. {next} next.",
+            "{n}. Look at you, an athlete, allegedly. {next} is up.",
+            "{n}. That is a real number that really happened. {next}."],
+      repsNoNext:["{n}. And that is the last number I will ever ask of you. Today.",
+                  "{n} reps. Put it on your gravestone."],
+      fade:["{n}, but they got smaller. Like your enthusiasm. Full range, coward. {next} next.",
+            "{n} — the first ones were reps, the last ones were suggestions. {next} is up.",
+            "{n}. You started strong and finished like a sad little accordion. {next}."],
       rest:["Rest. Breathe. Contemplate your decisions. {next} is next.",
             "Twenty seconds. Use them. {next} does not care about your feelings.",
             "Enjoy this. It is the nicest I get. {next} after.",
@@ -5129,6 +5203,15 @@ const COACHES = {
             "Final round. Same rhythm."],
       final:["Last station. Finish it kindly.",
              "One more. Then it is done."],
+      reps:["{n}. Rest now. {next} after.",
+            "{n} reps. Breathe. {next} is next.",
+            "That was {n}. Let it settle. Then {next}.",
+            "{n}. Nothing to prove. {next} when you are ready."],
+      repsNoNext:["{n}. That is enough.",
+                  "{n} reps. You are done."],
+      fade:["{n}. They got shorter towards the end — that is fatigue, not failure. Take the full rest. {next} after.",
+            "{n}. Your range came in at the end. Slow the tempo and keep the depth. {next} next.",
+            "{n}. The last few were smaller. Fewer, done fully, is the better trade. {next} is coming."],
       rest:["Rest. {next} next when you are ready.",
             "Breathe. {next} is coming — no hurry.",
             "Let the heart rate come down. {next} after."],
@@ -5260,6 +5343,20 @@ function coachSegment(s, first){
   if (s.type === "cooldown"){ coachSay("cool", {}, { force:true }); return; }
 
   if (s.type === "rest"){
+    /* A counted set gets reported here instead of the usual rest line,
+       not as well as it — the silence budget is the whole reason the
+       coach is bearable. Both pools carry {next}, so nothing is lost.
+
+       "fade" is the only thing it is allowed to say about how the set
+       looked, and it is a comparison of the last three reps against the
+       first three in the same set from the same camera. It never claims
+       anything about form. */
+    const r = RP.last; RP.last = null;
+    if (r && r.n >= 3){
+      const vars = { n:r.n, next: nx ? nx.label : "" };
+      if (r.faded && nx && coachSay("fade", vars, { force:true })) return;
+      if (coachSay(nx ? "reps" : "repsNoNext", vars, { force:true })) return;
+    }
     if (nx) coachSay("rest", { next: nx.label, ex: s.label });
     else coachSay("restNoNext", {});
     return;
@@ -5402,6 +5499,141 @@ if ("speechSynthesis" in window)
   try{ speechSynthesis.onvoiceschanged = () => { CO.voice = null; }; }catch(e){}
 
 /* =========================================================
+   18. COUNTING REPS
+   =========================================================
+   The maths and the camera live in /assets/, imported on demand and
+   never at boot. Three reasons, in order of how much they cost to get
+   wrong:
+
+   1. The clock has to work with the wifi off. A pose model is a ten
+      megabyte dependency; making it a dependency of the timer would be
+      trading the app's only real promise for a feature most sessions
+      do not use.
+   2. It only counts thirty of ninety-six exercises. Loading a model to
+      watch someone do a farmer carry is pure cost.
+   3. If the import fails there is nothing to recover from — the
+      workout has not been touched.
+
+   What it is allowed to know is deliberately small. It counts, and it
+   compares your last three reps to your first three in the same set
+   from the same camera position. It does not judge your form, because
+   a lite model at an unknown angle cannot, and being told your squat
+   is unsafe when it is not is worse than being told nothing.
+   ========================================================= */
+const RP = {
+  want: false,          // the setting
+  mod : null,           // the module, once imported
+  on  : false,          // armed right now
+  last: null,           // stats from the interval that just ended
+  total: 0, sets: 0,    // the session so far
+  failed: false
+};
+
+function repLoad(){ try{ RP.want = localStorage.getItem("stations.reps") === "1"; }catch(e){} }
+function repSave(){ try{ localStorage.setItem("stations.reps", RP.want ? "1" : "0"); }catch(e){} }
+
+function repNote(t){ const el = $("#repnote"); if (el) el.textContent = t || ""; }
+
+function repState(k, extra){
+  const run = $("#run");
+  if (k === "armed"){ RP.on = true; run.classList.add("counting");
+                      document.body.classList.add("repcam"); repNote(extra || ""); }
+  else if (k === "range")   repNote("Do one full rep so I can see your range");
+  else if (k === "lost")    repNote("Cannot see you — step back so your whole body is in frame");
+  else if (k === "loading") repNote("Loading the model…");
+  else if (k === "nocam")   { RP.failed = true; repNote("Camera blocked — counting off for this session"); }
+  else if (k === "nomodel") { RP.failed = true; repNote("Could not load the counter — the workout is unaffected"); }
+  else { RP.on = false; run.classList.remove("counting");
+         document.body.classList.remove("repcam"); repNote(""); }
+}
+
+function repCounted(n){
+  const el = $("#repn");
+  if (!el) return;
+  el.textContent = n;
+  el.classList.remove("pop"); void el.offsetWidth; el.classList.add("pop");
+}
+
+/* Imported once, during the warm-up, so the download happens while they
+   are jogging on the spot rather than while they are waiting to squat. */
+async function repBoot(){
+  if (!RP.want || RP.mod || RP.failed) return RP.mod;
+  try{
+    /* Same seam as STATIONS_RELAY: the tests need to drive the arming
+       schedule without a ten megabyte model and a real camera, and the
+       schedule is the part written here. */
+    RP.mod = (typeof window !== "undefined" && window.STATIONS_REPS)
+          || await import("/assets/reps-run.js");
+    RP.mod.init({
+      video: $("#repcam"),
+      onCount: repCounted,
+      onState: repState,
+      /* In a call the camera is already open and belongs to the call. */
+      getStream: () => (DUO.connected && DUO.local) || null
+    });
+    RP.mod.load();                      // fetch the model now, do not wait on it
+  }catch(e){ RP.failed = true; }
+  return RP.mod;
+}
+
+function repCountable(label){
+  return !!(RP.mod && label && RP.mod.countable(label));
+}
+
+/* Called from enterSeg BEFORE the coach speaks, so that the line about
+   the set that just ended has the numbers to use. */
+function repSegment(s, first){
+  if (!RP.want || RP.failed) return;
+  const m = RP.mod;
+  if (!m) { if (s.type === "warmup" || first) repBoot(); return; }
+
+  const nx = nextWork(S.idx);
+  const nextCountable = repCountable(nx && nx.label);
+
+  /* close out whatever was running */
+  if (m.armed()){
+    const r = m.disarm(nextCountable);   // keep the camera if it is wanted again shortly
+    if (r && r.n){ RP.last = r; RP.total += r.n; RP.sets++; }
+    else RP.last = null;
+    $("#repn").textContent = "0";
+  }
+
+  if (s.type === "work" && repCountable(s.label)){
+    m.arm(s.label);
+    return;
+  }
+  /* Warm the sensor during the rest before a station worth counting, so
+     the first rep is not the one that gets missed. */
+  if (s.type !== "work" && nextCountable) m.warm();
+  else if (!m.armed()) m.stop();
+}
+
+function repEnd(){
+  if (RP.mod){ try{ RP.mod.stop(); }catch(e){} }
+  RP.on = false; RP.last = null;
+  $("#run").classList.remove("counting");
+  document.body.classList.remove("repcam");
+}
+
+/* ---- the setting ---- */
+function repRender(){
+  const b = $("#rToggle"), sum = $("#repSum"), hint = $("#repHint");
+  if (!b) return;
+  b.textContent = RP.want ? "On" : "Off";
+  b.classList.toggle("on", RP.want);
+  if (sum) sum.textContent = RP.want ? "On" : "Off";
+  if (hint) hint.textContent = RP.want
+    ? "It counts squats, lunges, step-ups, push-ups, dips, jacks and burpees — thirty of the " +
+      "ninety-six movements in the library. Everything else runs exactly as it does now."
+    : "Off. The camera is never opened.";
+}
+function repBind(){
+  const b = $("#rToggle"); if (!b) return;
+  b.onclick = () => { RP.want = !RP.want; repSave(); repRender(); };
+  repRender();
+}
+
+/* =========================================================
    12. BOOT
    ========================================================= */
 S.cfg = cfgFor(PRESETS[0], goalById(S.goalId));
@@ -5409,6 +5641,7 @@ S.goalShift = goalById(S.goalId).shift;
 renderPresets(); renderGoals(); renderEquip(); renderConfig();
 profLoad(); histLoad(); histHomeBadge(); renderEquip();
 coachLoad(); renderCoaches();
+repLoad(); repBind();
 // #mixwrap lives after this script, so wait for the full document
 function bootMusicAndShare(){
   musRestore();
