@@ -77,6 +77,16 @@ export function startRelay(){
       coachCalls.length = 0;
       return json(res, { ok:true, mode: coachMode });
     }
+    if (u.pathname === "/admin"){
+      if (u.searchParams.get("key") !== "test-admin-key"){ res.writeHead(404); return res.end(); }
+      const rows = [...interest.entries()].map(([e,d]) =>
+        `<tr><td>${e}</td><td>2026-08-20 00:00</td><td>3</td></tr>`).join("");
+      res.writeHead(200, {"Content-Type":"text/html"});
+      return res.end(`<!DOCTYPE html><html><head><meta name="robots" content="noindex">
+        <title>STATIONS — the list</title></head><body><div class="n">${interest.size}</div>
+        ${rows ? `<table>${rows}</table>` : `<div class="empty">Nobody yet.</div>`}
+        <a href="/interest/export?key=test-admin-key">Download as CSV</a></body></html>`);
+    }
     if (u.pathname === "/__interest") return json(res, [...interest.entries()]);
     if (u.pathname === "/__spend"){   // test hook: burn someone's free sessions
       const did = u.searchParams.get("did") || "";

@@ -24,7 +24,9 @@
                             never one per interval.
      GET  /trial?did=     → how many free sessions are left.
      POST /interest       → an email from someone who hit the wall.
-     GET  /interest/export?key= → that list, for you. Needs ADMIN_KEY.
+     GET  /interest/export?key= → that list as CSV. Needs ADMIN_KEY.
+     GET  /admin?key=     → the same thing as a page you can read
+                            on a phone. Needs ADMIN_KEY.
 
    Deploy: see worker/README.md
    ========================================================= */
@@ -89,8 +91,21 @@ export default {
       try{ body = await req.json(); }catch(e){}
       const r = await ledger(env).fetch(new Request("https://l/interest", {
         method:"POST", body: JSON.stringify(body || {}) }));
-      return new Response(await r.text(), { status:r.status,
+      const text = await r.text();
+      /* Tell Andre, but never make the person on the wall wait for it —
+         and never fail their signup because a mail provider was down. */
+      if (r.ok) ctx.waitUntil(notify(env, body).catch(() => {}));
+      return new Response(text, { status:r.status,
         headers: { ...cors, "Content-Type":"application/json" }});
+    }
+
+    /* The list, as something readable on a phone. Same key as the CSV. */
+    if (url.pathname === "/admin"){
+      if (!env.ADMIN_KEY || url.searchParams.get("key") !== env.ADMIN_KEY)
+        return new Response("nope", { status:404, headers:cors });
+      const r = await ledger(env).fetch(new Request("https://l/dump"));
+      return new Response(adminPage(await r.json(), url.searchParams.get("key")), {
+        headers: { ...cors, "Content-Type":"text/html; charset=utf-8", "Cache-Control":"no-store" }});
     }
 
     /* Deliberately not clever: one shared secret, and without it set the
@@ -329,6 +344,14 @@ export class Ledger extends DurableObject {
         return json({ ok:true });
       }
 
+      /* Everything the dashboard shows, in one read. */
+      case "/dump": {
+        const interest = [...this.sql.exec("SELECT email, at, used FROM interest ORDER BY at DESC")];
+        const t = [...this.sql.exec("SELECT COUNT(*) AS n, COALESCE(SUM(used),0) AS s FROM trials")][0] || {};
+        const spent = [...this.sql.exec("SELECT COUNT(*) AS n FROM trials WHERE used >= ?", FREE_CALLS)][0] || {};
+        return json({ interest, devices: t.n || 0, sessions: t.s || 0, spent: spent.n || 0 });
+      }
+
       case "/export": {
         const rows = [...this.sql.exec("SELECT email, at, used FROM interest ORDER BY at DESC")];
         const csv = ["email,signed_up_utc,sessions_used"]
@@ -453,4 +476,80 @@ async function coachScript(env, body){
   const kept = Object.keys(lines).filter(k => lines[k]);
   if (!kept.length) return { ok:false, error:"nothing usable" };
   return { ok:true, persona, lines, kept };
+}
+
+
+/* =========================================================
+   Telling Andre somebody signed up
+   =========================================================
+   Cloudflare's own email sending needs the paid Workers plan, so this
+   uses Resend, which has a free tier. Both secrets are optional: with
+   them set you get an email per signup, without them nothing happens
+   and the signup still works. Same rule as everywhere else here —
+   a missing key costs a nicety, never the feature.
+
+   Set RESEND_API_KEY and ADMIN_EMAIL to turn it on.
+   ========================================================= */
+async function notify(env, body){
+  if (!env.RESEND_API_KEY || !env.ADMIN_EMAIL) return;
+  const who = String((body && body.email) || "").slice(0, 254);
+  if (!who) return;
+  await fetch("https://api.resend.com/emails", {
+    method:"POST",
+    headers:{ "Authorization":"Bearer " + env.RESEND_API_KEY, "Content-Type":"application/json" },
+    body: JSON.stringify({
+      from: env.NOTIFY_FROM || "STATIONS <onboarding@resend.dev>",
+      to: [env.ADMIN_EMAIL],
+      subject: "Someone hit the wall: " + who,
+      text: who + " used up their three free sessions and asked to be told when "
+          + "Train together opens.\n\nThe whole list: "
+          + "https://stations-signal.andre-rafizadeh.workers.dev/admin?key=YOUR_ADMIN_KEY\n"
+    })
+  });
+}
+
+/* A page rather than a CSV, because the question this answers — has
+   anyone signed up — gets asked from a phone, in a queue, one-handed. */
+function adminPage(d, key){
+  const esc = t => String(t).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+  const rows = (d.interest || []).map(r =>
+    `<tr><td>${esc(r.email)}</td><td>${new Date(r.at).toISOString().slice(0,16).replace("T"," ")}</td>` +
+    `<td>${r.used == null ? "—" : r.used}</td></tr>`).join("");
+  return `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex"><title>STATIONS — the list</title>
+<style>
+:root{--bg:#000;--line:#26262b;--txt:#fff;--dim:#9b9ba4;--dim2:#66666e}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--txt);
+ font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,sans-serif;padding:24px 18px 60px}
+.w{max-width:640px;margin:0 auto}
+h1{font-size:12px;letter-spacing:3px;text-transform:uppercase;color:var(--dim2);font-weight:800;margin:0 0 18px}
+.n{font-family:ui-monospace,Menlo,monospace;font-size:clamp(56px,16vw,88px);font-weight:800;
+ letter-spacing:-3px;line-height:1;font-variant-numeric:tabular-nums}
+.sub{color:var(--dim);margin:6px 0 26px}
+.stats{display:flex;gap:26px;border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:16px 0;margin-bottom:22px}
+.stat .k{font-size:10.5px;letter-spacing:1.8px;text-transform:uppercase;color:var(--dim2);font-weight:800}
+.stat .v{font-family:ui-monospace,Menlo,monospace;font-size:22px;font-weight:800}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th{text-align:left;font-size:10.5px;letter-spacing:1.6px;text-transform:uppercase;color:var(--dim2);
+ padding:0 0 8px;font-weight:800}
+td{padding:11px 0;border-top:1px solid var(--line);color:var(--dim);vertical-align:top}
+td:first-child{color:var(--txt);word-break:break-all}
+td:last-child,th:last-child{text-align:right}
+a{color:var(--dim2)}
+.empty{border:1px dashed var(--line);border-radius:14px;padding:26px;text-align:center;color:var(--dim2)}
+</style></head><body><div class="w">
+<h1>Train together — the waiting list</h1>
+<div class="n">${(d.interest || []).length}</div>
+<p class="sub">${(d.interest||[]).length === 1 ? "person has" : "people have"} asked to be told when it opens.</p>
+<div class="stats">
+  <div class="stat"><div class="k">Devices seen</div><div class="v">${d.devices || 0}</div></div>
+  <div class="stat"><div class="k">Sessions used</div><div class="v">${d.sessions || 0}</div></div>
+  <div class="stat"><div class="k">Hit the wall</div><div class="v">${d.spent || 0}</div></div>
+</div>
+${rows ? `<table><tr><th>Email</th><th>When (UTC)</th><th>Used</th></tr>${rows}</table>`
+       : `<div class="empty">Nobody yet. That is information too — it means either
+          nobody is reaching the wall, or the wall is not persuading them.</div>`}
+<p style="margin-top:30px"><a href="/interest/export?key=${encodeURIComponent(key)}">Download as CSV</a></p>
+</div></body></html>`;
 }
