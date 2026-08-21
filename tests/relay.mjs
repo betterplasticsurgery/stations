@@ -12,6 +12,8 @@ export function startRelay(){
   const rooms = new Map();
   const used = new Map();          // did -> sessions spent
   const interest = new Map();      // email -> did
+  const coachCalls = [];
+  const coachMode = { fail:false, slow:false };
   const json = (res, o, status=200) => {
     res.writeHead(status, {"Content-Type":"application/json","Access-Control-Allow-Origin":"*"});
     res.end(JSON.stringify(o));
@@ -48,6 +50,32 @@ export function startRelay(){
         json(res, { ok:true });
       });
       return;
+    }
+    if (u.pathname === "/coach" && req.method === "POST"){
+      let body = "";
+      req.on("data", c => body += c);
+      req.on("end", () => {
+        let b = {}; try{ b = JSON.parse(body); }catch(e){}
+        coachCalls.push(b);
+        if (coachMode.fail) return json(res, { ok:false, error:"model unavailable" }, 502);
+        if (coachMode.slow) return;                      // never answers: tests the timeout
+        const stations = b.stations || [];
+        json(res, { ok:true, persona:b.persona, lines:{
+          start:"GEN start line",
+          work: stations.map((n,i) => `GEN ${i}: ${n}, go`),
+          mid:  ["GEN mid A","GEN mid B","GEN mid C"],
+          rest: ["GEN rest A","GEN rest B"],
+          half: "GEN half", end: "GEN end"
+        }});
+      });
+      return;
+    }
+    if (u.pathname === "/__coach") return json(res, { calls: coachCalls, mode: coachMode });
+    if (u.pathname === "/__coachmode"){
+      coachMode.fail = u.searchParams.get("fail") === "1";
+      coachMode.slow = u.searchParams.get("slow") === "1";
+      coachCalls.length = 0;
+      return json(res, { ok:true, mode: coachMode });
     }
     if (u.pathname === "/__interest") return json(res, [...interest.entries()]);
     if (u.pathname === "/__spend"){   // test hook: burn someone's free sessions

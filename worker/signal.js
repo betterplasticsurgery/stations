@@ -19,6 +19,9 @@
                             secrets are set, public STUN otherwise.
      GET  /room/<code>    → WebSocket. Everything sent is relayed
                             verbatim to the other side of the room.
+     POST /coach          → a whole session's coaching script,
+                            written fresh. One call per workout,
+                            never one per interval.
      GET  /trial?did=     → how many free sessions are left.
      POST /interest       → an email from someone who hit the wall.
      GET  /interest/export?key= → that list, for you. Needs ADMIN_KEY.
@@ -98,6 +101,15 @@ export default {
       const r = await ledger(env).fetch(new Request("https://l/export"));
       return new Response(await r.text(), {
         headers: { ...cors, "Content-Type":"text/csv", "Cache-Control":"no-store" }});
+    }
+
+    if (url.pathname === "/coach" && req.method === "POST"){
+      let body = {};
+      try{ body = await req.json(); }catch(e){}
+      const out = await coachScript(env, body || {});
+      return new Response(JSON.stringify(out), {
+        status: out.ok ? 200 : 502,
+        headers: { ...cors, "Content-Type":"application/json", "Cache-Control":"no-store" }});
     }
 
     const m = url.pathname.match(/^\/room\/([A-Za-z0-9_-]{4,40})$/);
@@ -327,4 +339,117 @@ export class Ledger extends DurableObject {
     }
     return new Response("no", { status:404 });
   }
+}
+
+
+/* =========================================================
+   The coach's script, written fresh for one session
+   =========================================================
+   The whole workout is known before it starts — every exercise, in
+   order, with its duration. So this is ONE call that writes the
+   entire script, not one call per interval. The client fires it as
+   the warm-up begins and has minutes to work with, which is why
+   nobody ever waits on a model mid-burpee.
+
+   Runs on Workers AI, so there is no third-party key anywhere and no
+   account beyond the one already hosting this.
+
+   Every failure path returns ok:false and the app falls back to its
+   written-in pool. A coach that goes silent because a model was busy
+   would be worse than one that repeats itself.
+   ========================================================= */
+
+const MODEL = "@cf/meta/llama-3.2-3b-instruct";
+
+/* Things a coach must never say, whatever the model decides. Pain is
+   information, and an app that tells someone to ignore it is an app
+   that hurts someone. A backstop, not the only guard — the prompt
+   says it too. */
+const FORBIDDEN = [
+  /push through the pain/i, /ignore the pain/i, /pain is weakness/i,
+  /no pain,? no gain/i, /work through the injury/i,
+  /you can'?t stop now/i, /skip (the )?(warm|cool)/i
+];
+
+const VOICES = {
+  coach: "A plain-spoken strength coach. Direct, technical, unsentimental. Cues body position and breathing. Never gushes.",
+  sarge: "A drill instructor. Clipped, loud, unsympathetic, faintly funny in its severity. Short sentences. Never comforting.",
+  quiet: "A calm, low-voiced coach who never raises their voice. Breath-led, unhurried, kind without being soft."
+};
+
+function clean(line){
+  let t = String(line || "").replace(/\s+/g, " ").trim();
+  t = t.replace(/^["\u2018\u2019'\-\u2013\u2014\s]+|["\u2018\u2019'\s]+$/g, "");
+  if (t.length > 90 || t.length < 4) return null;
+  if (FORBIDDEN.some(re => re.test(t))) return null;
+  return t;
+}
+
+async function coachScript(env, body){
+  const persona = VOICES[body.persona] ? body.persona : "coach";
+  const stations = Array.isArray(body.stations) ? body.stations.slice(0, 24).map(String) : [];
+  if (!stations.length) return { ok:false, error:"no stations" };
+
+  const facts = [];
+  if (body.sessions > 0) facts.push("they have logged " + body.sessions + " sessions");
+  if (body.streak   > 1) facts.push("they are on a " + body.streak + " day streak");
+  if (body.thisWeek > 1) facts.push("this is session " + body.thisWeek + " this week");
+  if (body.lastRpe === 0) facts.push("they said the last session was too easy");
+  if (body.lastRpe === 2) facts.push("they said the last session was too much");
+  if (body.minutes)      facts.push("the session is " + body.minutes + " minutes long");
+
+  const prompt = [
+    "You are writing the spoken lines for a workout app's coach. Return JSON only.",
+    "",
+    "VOICE: " + VOICES[persona],
+    "",
+    "THE SESSION: " + stations.length + " stations, in this order: " + stations.join(", ") + ".",
+    facts.length ? "ABOUT THIS PERSON: " + facts.join("; ") + "." : "",
+    "",
+    'Write JSON with exactly these keys:',
+    '{"start":"...","work":["one line per station, same order, each naming that exercise"],' +
+    '"mid":["6 short mid-effort lines"],"rest":["4 lines for the rest period"],"half":"...","end":"..."}',
+    "",
+    "RULES",
+    "- Every line is spoken aloud mid-workout. Under 90 characters. No emoji, no markdown, no stage directions.",
+    "- The work array must have exactly " + stations.length + " entries and each must name its exercise.",
+    "- Cue position, breathing, tempo or effort. Be specific to the movement where you can.",
+    "- Never tell anyone to push through pain, ignore pain, or skip a warm-up or cool-down.",
+    "- No medical claims. No calorie or fat-loss claims. No hype about transformation.",
+    "- Do not repeat the same sentence twice.",
+    "- JSON only. No prose before or after."
+  ].join("\n");
+
+  let raw;
+  try{
+    const r = await env.AI.run(MODEL, {
+      messages: [{ role:"user", content: prompt }],
+      max_tokens: 1400, temperature: 0.9
+    });
+    raw = (r && (r.response || r.result)) || "";
+  }catch(e){ return { ok:false, error:"model unavailable" }; }
+
+  /* Models put JSON inside prose more often than anyone admits. */
+  let parsed = null;
+  const m2 = String(raw).match(/\{[\s\S]*\}/);
+  if (m2) { try{ parsed = JSON.parse(m2[0]); }catch(e){} }
+  if (!parsed) return { ok:false, error:"unparseable" };
+
+  const arr = (v, n) => {
+    const out = (Array.isArray(v) ? v : []).map(clean).filter(Boolean);
+    return (n && out.length !== n) ? null : (out.length ? out : null);
+  };
+  const one = v => clean(Array.isArray(v) ? v[0] : v);
+
+  const lines = {
+    start: one(parsed.start), work: arr(parsed.work, stations.length),
+    mid: arr(parsed.mid), rest: arr(parsed.rest),
+    half: one(parsed.half), end: one(parsed.end)
+  };
+
+  /* Partial is fine — whatever survives is used and the rest falls back
+     to the written pool. Half a fresh script still beats none. */
+  const kept = Object.keys(lines).filter(k => lines[k]);
+  if (!kept.length) return { ok:false, error:"nothing usable" };
+  return { ok:true, persona, lines, kept };
 }

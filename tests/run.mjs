@@ -217,9 +217,98 @@ console.log("\nthe coach");
   /* the picker is wired to the setup screen */
   const chips = await p.evaluate(() => {
     show("setup");
-    return document.querySelectorAll("#coaches .coachchip").length;
+    return [...document.querySelectorAll("#coaches .coachchip")].map(b => b.querySelector("b").textContent);
   });
-  ok("the setup screen offers all of them plus Silence", chips === 4, chips + " chips");
+  ok("the setup screen offers every persona", ["The Coach","Sarge","The Quiet One"].every(n => chips.includes(n)),
+     chips.join(" / "));
+  ok("plus Silence and the fresh-script switch",
+     chips.includes("Silence") && chips.some(c => c.startsWith("Fresh script")), chips.join(" / "));
+  await ctx.close();
+}
+
+/* ---- the generated script ---- */
+console.log("\na script written per session");
+{
+  const ctx = await browser.newContext();
+
+  /* off by default: a normal workout must not touch the network */
+  {
+    const p = await newPage(ctx, { relay:true });
+    await p.goto(BASE);
+    await fetch(`${RELAY}/__coachmode`);
+    await p.evaluate(() => {
+      window.__said = []; window.coachSpeak = (text,id) => window.__said.push({ text, id });
+      generateWorkout(); startWorkout();
+    });
+    await p.waitForTimeout(700);
+    const calls = (await (await fetch(`${RELAY}/__coach`)).json()).calls;
+    ok("stays off unless asked for", calls.length === 0, JSON.stringify(calls));
+    ok("and the coach still spoke from the written pool",
+       await p.evaluate(() => window.__said.length > 0));
+    await p.close();
+  }
+
+  /* on: one call for the whole session, and its lines get used */
+  {
+    const p = await newPage(ctx, { relay:true });
+    await p.goto(BASE);
+    await fetch(`${RELAY}/__coachmode`);
+    await p.evaluate(async () => {
+      window.__said = []; window.coachSpeak = (text,id) => window.__said.push({ text, id });
+      CO.live = true; generateWorkout();
+      startWorkout();                        // fires the request under the warm-up
+      await CO.pending;                      // wait on that one, do not make a second
+    });
+    const body = (await (await fetch(`${RELAY}/__coach`)).json()).calls;
+    ok("exactly one call for the whole workout", body.length === 1, body.length + " calls");
+    ok("it sends the real station list",
+       Array.isArray(body[0].stations) && body[0].stations.length > 4,
+       JSON.stringify((body[0]||{}).stations||[]).slice(0,80));
+    ok("and the chosen persona", !!body[0].persona);
+
+    const used = await p.evaluate(() => {
+      window.__said = []; CO.last = -1e9; S.running = true; S.remain = 20000;
+      coachSay("mid", {});
+      const first = (window.__said[0]||{}).text || "";
+      /* the station line should be the generated one for that station */
+      S.segs = buildTimeline();
+      const wi = S.segs.findIndex(x => x.type === "work");
+      window.__said = []; CO.last = -1e9; S.idx = wi; S.remain = S.segs[wi].dur*1000;
+      coachSegment(S.segs[wi], false);
+      return { mid:first, work:(window.__said[0]||{}).text || "",
+               ex:S.segs[wi].label, idx: coachStationIndex(S.segs[wi]) };
+    });
+    ok("generated lines replace the written ones", /^GEN mid/.test(used.mid), used.mid);
+    ok("each station gets its own generated line",
+       used.work.startsWith("GEN " + used.idx + ":") && used.work.includes(used.ex),
+       `${used.work} (station ${used.idx}, ${used.ex})`);
+    ok("generated lines carry no clip id",
+       await p.evaluate(() => coachPick("mid").id === null));
+    await p.close();
+  }
+
+  /* the model failing must be invisible */
+  {
+    const p = await newPage(ctx, { relay:true });
+    await p.goto(BASE);
+    await fetch(`${RELAY}/__coachmode?fail=1`);
+    await p.evaluate(async () => {
+      window.__said = []; window.coachSpeak = (text,id) => window.__said.push({ text, id });
+      CO.live = true; generateWorkout(); startWorkout();
+      await CO.pending;
+    });
+    const fellBack = await p.evaluate(() => {
+      window.__said = []; CO.last = -1e9; S.running = true; S.remain = 20000;
+      coachSay("mid", {});
+      return { text:(window.__said[0]||{}).text || "", gen: CO.gen };
+    });
+    ok("a failed model leaves the written pool in charge",
+       fellBack.text.length > 0 && !/^GEN/.test(fellBack.text), fellBack.text);
+    ok("and nothing broken is cached", fellBack.gen === null);
+    ok("the session is still running", await p.evaluate(() => !!S.timer));
+    await p.close();
+  }
+  await fetch(`${RELAY}/__coachmode`);
   await ctx.close();
 }
 

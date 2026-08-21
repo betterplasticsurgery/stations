@@ -3248,6 +3248,7 @@ function startWorkout(){
   S.segs = buildTimeline();
   if (!S.segs.length){ alert("This workout has no segments — add some stations or time."); return; }
   coachReset();
+  coachGenerate();          // fires under cover of the warm-up
   S.idx = 0;
   show("run");
   paintTicks();
@@ -4909,6 +4910,9 @@ const COACHES = {
 
 const CO = {
   on:true, id:"coach",
+  live:false,           // ask the relay to write a fresh script each session
+  pending:null,         // the in-flight request, so a session can wait on it if it wants
+  gen:null,             // this session's generated pools, when one arrived
   used:{},              // pool -> indices already spoken this session
   last:-1e9, spoken:0, midDone:false, voice:null,
   audio:null            // reserved: id -> pre-rendered clip URL
@@ -4921,7 +4925,7 @@ const MAX_LINES  = 90;     // a hard stop so a long session cannot become a podc
 function coachDef(){ return COACHES[CO.id] || COACHES.coach; }
 
 function coachSave(){
-  try{ localStorage.setItem(COACHKEY, JSON.stringify({ on:CO.on, id:CO.id })); }catch(e){}
+  try{ localStorage.setItem(COACHKEY, JSON.stringify({ on:CO.on, id:CO.id, live:CO.live })); }catch(e){}
 }
 function coachLoad(){
   try{
@@ -4929,6 +4933,7 @@ function coachLoad(){
     if (d && typeof d === "object"){
       if (typeof d.on === "boolean") CO.on = d.on;
       if (COACHES[d.id]) CO.id = d.id;
+      if (typeof d.live === "boolean") CO.live = d.live;
     }
   }catch(e){}
 }
@@ -4973,14 +4978,18 @@ function coachFill(t, vars){
    pool runs dry. Hearing the same sentence twice in ten minutes is the
    fastest way to make a coach feel like a recording. */
 function coachPick(pool){
-  const lines = coachDef().lines[pool];
+  const lines = (CO.gen && CO.gen[pool] && CO.gen[pool].length)
+              ? CO.gen[pool] : coachDef().lines[pool];
   if (!lines || !lines.length) return null;
   const used = CO.used[pool] || (CO.used[pool] = []);
   if (used.length >= lines.length) used.length = 0;
   let i, guard = 0;
   do { i = Math.floor(Math.random() * lines.length); } while (used.indexOf(i) >= 0 && ++guard < 40);
   used.push(i);
-  return { text: lines[i], id: CO.id + "." + pool + "." + i };
+  /* Generated lines get no id: there is no clip to match them, and giving
+     them one would collide with the pre-rendered set. */
+  const fresh = !!(CO.gen && CO.gen[pool] && CO.gen[pool].length);
+  return { text: lines[i], id: fresh ? null : CO.id + "." + pool + "." + i };
 }
 
 function coachSay(pool, vars, opts){
@@ -5025,6 +5034,15 @@ function coachSegment(s, first){
       if (coachSay("last", { ex:s.label }, { force:true })) return;
     }
     if (s.round > 0) { if (coachSay("again", { ex:s.label, r:s.round+1 }, { force:true })) return; }
+    /* A generated script names each station once, in order. Later rounds
+       fall through to the written pool so one sentence is not the only
+       thing that exercise ever gets. */
+    const gi = coachStationIndex(s);
+    if (CO.gen && CO.gen.__work && CO.gen.__work[gi]){
+      CO.last = performance.now(); CO.spoken++;
+      coachSpeak(coachFill(CO.gen.__work[gi], { ex:s.label }), null);
+      return;
+    }
     coachSay("work", { ex:s.label }, { force:true });
   }
 }
@@ -5049,7 +5067,59 @@ function coachFinish(){
   coachSay("end", {}, { force:true });
 }
 
-function coachReset(){ CO.used = {}; CO.last = -1e9; CO.spoken = 0; CO.midDone = false; }
+function coachReset(){ CO.used = {}; CO.last = -1e9; CO.spoken = 0; CO.midDone = false; CO.gen = null; }
+
+function coachStationList(){
+  if (!S.workout) return [];
+  return S.workout.halves.reduce((a,h) => a.concat(h.list.map(e => e.n)), []);
+}
+function coachStationIndex(s){
+  if (!S.workout || s.half == null || s.station == null) return -1;
+  let off = 0;
+  for (let i = 0; i < s.half; i++) off += S.workout.halves[i].list.length;
+  return off + s.station;
+}
+
+/* ---- a script written for this session, once ----
+   Fired as the warm-up starts, because the whole timeline is already
+   known and there are minutes of cover before the first station. One
+   call per workout, never one per interval, so nobody ever waits on a
+   model mid-effort. Anything that goes wrong leaves the written pool in
+   place and the session does not notice. */
+function coachGenerate(){
+  return (CO.pending = coachFetchScript());
+}
+async function coachFetchScript(){
+  if (!CO.live || !CO.on || !DUO_RELAY) return;
+  const stations = coachStationList();
+  if (!stations.length) return;
+  const last = HIST.list[HIST.list.length-1] || {};
+  const ctrl = new AbortController();
+  const bail = setTimeout(() => ctrl.abort(), 25000);
+  try{
+    const r = await fetch(DUO_RELAY + "/coach", {
+      method:"POST", headers:{ "Content-Type":"application/json" }, signal: ctrl.signal,
+      body: JSON.stringify({
+        persona: CO.id, stations,
+        sessions: HIST.list.length,
+        streak: typeof histStreak === "function" ? histStreak() : 0,
+        thisWeek: typeof sessionsSince === "function" ? sessionsSince(7) : 0,
+        lastRpe: (last && typeof last.rpe === "number") ? last.rpe : null,
+        minutes: Math.round((S.segs ? S.segs.total : 0)/60)
+      })
+    });
+    const j = await r.json();
+    if (j && j.ok && j.lines){
+      const g = {};
+      ["start","mid","rest","half","end"].forEach(k => {
+        if (j.lines[k]) g[k] = Array.isArray(j.lines[k]) ? j.lines[k] : [j.lines[k]];
+      });
+      if (Array.isArray(j.lines.work)) g.__work = j.lines.work;
+      CO.gen = g;
+    }
+  }catch(e){ /* the pool is the fallback, and it is already loaded */ }
+  finally{ clearTimeout(bail); }
+}
 
 function workStationCount(){
   if (!S.workout) return 9;
@@ -5073,6 +5143,13 @@ function renderCoaches(){
     };
     wrap.appendChild(b);
   });
+  const live = document.createElement("button");
+  live.className = "chip coachchip" + (CO.live ? " on" : "");
+  live.innerHTML = '<b>Fresh script' + (CO.live ? ": on" : ": off") + '</b>' +
+    '<small>New lines written for every session. Needs a connection.</small>';
+  live.onclick = () => { CO.live = !CO.live; coachSave(); renderCoaches(); };
+  wrap.appendChild(live);
+
   const off = document.createElement("button");
   off.className = "chip coachchip" + (CO.on ? "" : " on");
   off.innerHTML = '<b>Silence</b><small>Beeps only. No talking.</small>';
