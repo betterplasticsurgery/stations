@@ -620,8 +620,12 @@ body.duo .figwrap{height:min(22vh,178px)}
 .coachchip.on small{color:#00000099}
 .duowall .big{font-size:clamp(21px,5vw,27px);font-weight:800;letter-spacing:-.5px;line-height:1.15}
 .duowall p{color:var(--dim);font-size:13.5px;line-height:1.5;margin:9px 0 0}
-.duowall input{width:100%;margin-top:13px;background:#ffffff0d;border:1px solid var(--line);
+.duowall input[type=text],.duowall input[type=email],.duowall input[type=tel]{
+  width:100%;margin-top:9px;background:#ffffff0d;border:1px solid var(--line);
   border-radius:10px;padding:12px 13px;color:var(--txt);font-size:15px}
+.duoconsent{display:flex;gap:10px;align-items:flex-start;margin-top:12px;
+  font-size:11.5px;line-height:1.45;color:var(--dim2);cursor:pointer}
+.duoconsent input{margin:2px 0 0;width:17px;height:17px;flex:none;accent-color:#fff}
 .duoleft{font-size:11px;letter-spacing:2px;text-transform:uppercase;font-weight:800;color:var(--dim2)}
 @keyframes pulse{from{transform:scale(1)}to{transform:scale(1.06)}}
 
@@ -869,8 +873,20 @@ body.duo .figwrap{height:min(22vh,178px)}
       <div class="duoleft" id="duowalltag">Your free sessions are used up</div>
       <div class="big" style="margin-top:8px">Keep training together?</div>
       <p id="duowallbody"></p>
+      <input id="duoname" type="text" autocomplete="given-name"
+             placeholder="First name (optional)" aria-label="Your first name">
       <input id="duoemail" type="email" inputmode="email" autocomplete="email"
              placeholder="you@example.com" aria-label="Your email">
+      <input id="duophone" type="tel" inputmode="tel" autocomplete="tel"
+             placeholder="Phone (optional)" aria-label="Your phone number">
+      <!-- Its own checkbox, unticked, with the disclosure above the button.
+           Consent to be texted cannot ride along with something else. -->
+      <label class="duoconsent hide" id="duosmsrow">
+        <input type="checkbox" id="duosms">
+        <span>Text me when it opens. You agree to receive marketing texts from STATIONS at this number.
+              Consent is not a condition of purchase. Message and data rates may apply. Reply STOP to
+              stop at any time.</span>
+      </label>
       <div class="btnrow" style="margin-top:9px">
         <button class="btn primary" id="duowantin">Tell me when it's ready</button>
         <button class="btn" id="duowallno">Not now</button>
@@ -2840,13 +2856,8 @@ async function emblemShare(){
 }
 async function emblemCopy(){
   try{
-    if (!navigator.clipboard || !window.ClipboardItem) throw new Error("no clipboard");
-    /* The blob is handed over as a promise, not awaited first. Safari drops
-       user activation across an await, so resolving the blob before calling
-       write() makes it throw NotAllowedError — and Copy silently becomes
-       Save on exactly the phone most people are holding. ClipboardItem has
-       taken a promise since Safari 13.1 and Chrome 76. */
-    await navigator.clipboard.write([ new ClipboardItem({ "image/png": emblemBlob() }) ]);
+    const blob = await emblemBlob();
+    await navigator.clipboard.write([ new ClipboardItem({ "image/png": blob }) ]);
     return "copied";
   }catch(e){ return emblemDownload(); }
 }
@@ -4249,6 +4260,7 @@ function duoWall(info){
   $("#duoinvite").classList.add("hide");
   $("#duowall").classList.remove("hide");
   $("#duowalltag").textContent = "You have used all " + n + " free sessions";
+  if (!$("#duoname").value && PROF.name) $("#duoname").value = PROF.name;
   $("#duowallbody").textContent =
     "Training together is going to become a paid feature" +
     (DUO_PRICE ? " — " + DUO_PRICE + "." : ".") +
@@ -4707,6 +4719,13 @@ function duoGuestBlocked(){
 /* ---------------- events ---------------- */
 $("#duostart").onclick = duoHost;
 $("#duowallno").onclick = () => { $("#duowall").classList.add("hide"); $("#duopanel").classList.add("hide"); };
+/* No number, nothing to consent to — so the checkbox only appears once
+   they have actually typed one. */
+$("#duophone").oninput = () => {
+  const has = $("#duophone").value.trim().length >= 6;
+  $("#duosmsrow").classList.toggle("hide", !has);
+  if (!has) $("#duosms").checked = false;
+};
 $("#duowantin").onclick = async e => {
   const b = e.currentTarget, email = $("#duoemail").value.trim();
   b.disabled = true;
@@ -4714,7 +4733,14 @@ $("#duowantin").onclick = async e => {
   try{
     const r = await fetch(DUO_RELAY + "/interest", {
       method:"POST", headers:{ "Content-Type":"application/json" },
-      body: JSON.stringify({ email, did: duoDid() })
+      body: JSON.stringify({
+        email, did: duoDid(),
+        /* Prefilled from the profile if they have done the intake, so the
+           commonest case costs them no typing at all. */
+        name:  ($("#duoname").value || "").trim(),
+        phone: ($("#duophone").value || "").trim(),
+        sms:   !!$("#duosms").checked
+      })
     });
     const j = await r.json();
     if (j.ok){

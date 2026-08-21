@@ -46,7 +46,8 @@ export function startRelay(){
         const email = String(b.email || "").trim();
         if (!/^[^@\s]+@[^@\s.]+\.[^@\s]+$/.test(email))
           return json(res, { ok:false, error:"that does not look like an email" }, 400);
-        interest.set(email, b.did || "");
+        interest.set(email, { did:b.did||"", name:b.name||"", phone:b.phone||"",
+                              sms: (b.sms === true && b.phone) ? 1 : 0 });
         json(res, { ok:true });
       });
       return;
@@ -80,7 +81,9 @@ export function startRelay(){
     if (u.pathname === "/admin"){
       if (u.searchParams.get("key") !== "test-admin-key"){ res.writeHead(404); return res.end(); }
       const rows = [...interest.entries()].map(([e,d]) =>
-        `<tr><td>${e}</td><td>2026-08-20 00:00</td><td>3</td></tr>`).join("");
+        `<tr><td>${e}${d.name?`<i>${d.name}</i>`:""}</td>` +
+        `<td>${d.phone ? d.phone + (d.sms ? " <b>SMS</b>" : " <s>no texts</s>") : "—"}</td>` +
+        `<td>2026-08-20 00:00</td></tr>`).join("");
       res.writeHead(200, {"Content-Type":"text/html"});
       return res.end(`<!DOCTYPE html><html><head><meta name="robots" content="noindex">
         <title>STATIONS — the list</title></head><body><div class="n">${interest.size}</div>

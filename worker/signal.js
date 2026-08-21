@@ -89,8 +89,12 @@ export default {
     if (url.pathname === "/interest" && req.method === "POST"){
       let body = {};
       try{ body = await req.json(); }catch(e){}
+      /* Consent has to be provable, and the proof cannot come from the
+         page — a client can claim any IP it likes. Cloudflare puts the
+         real one on the request. */
+      body = Object.assign({}, body, { ip: req.headers.get("CF-Connecting-IP") || "" });
       const r = await ledger(env).fetch(new Request("https://l/interest", {
-        method:"POST", body: JSON.stringify(body || {}) }));
+        method:"POST", body: JSON.stringify(body) }));
       const text = await r.text();
       /* Tell Andre, but never make the person on the wall wait for it —
          and never fail their signup because a mail provider was down. */
@@ -287,6 +291,12 @@ export class Ledger extends DurableObject {
       first_seen INTEGER NOT NULL, last_seen INTEGER NOT NULL)`);
     this.sql.exec(`CREATE TABLE IF NOT EXISTS interest(
       email TEXT PRIMARY KEY, did TEXT, at INTEGER NOT NULL, used INTEGER)`);
+    /* This table is already live with the original four columns, and SQLite
+       has no ADD COLUMN IF NOT EXISTS. Adding each one and ignoring the
+       failure is the ordinary way to migrate a table you cannot drop. */
+    for (const col of ["name TEXT", "phone TEXT", "sms INTEGER", "ip TEXT"]){
+      try{ this.sql.exec(`ALTER TABLE interest ADD COLUMN ${col}`); }catch(e){}
+    }
   }
 
   row(did){
@@ -336,26 +346,46 @@ export class Ledger extends DurableObject {
            plus in it is worse than storing one typo. */
         if (!/^[^@\s]+@[^@\s.]+\.[^@\s]+$/.test(email))
           return json({ ok:false, error:"that does not look like an email" }, 400);
-        const who = String(b.did || "").slice(0, 64);
+        const who   = String(b.did || "").slice(0, 64);
+        const name  = String(b.name || "").trim().slice(0, 80);
+        /* Kept as typed. Reformatting someone's number is how you turn a
+           reachable contact into an unreachable one. */
+        const phone = String(b.phone || "").trim().slice(0, 32);
+        /* Consent is only true if they actually ticked it AND gave a number.
+           A tick with no number is not consent to anything. */
+        const sms   = (b.sms === true && phone) ? 1 : 0;
+        const ip    = String(b.ip || "").slice(0, 64);
         this.sql.exec(
-          `INSERT INTO interest(email, did, at, used) VALUES(?, ?, ?, ?)
-           ON CONFLICT(email) DO UPDATE SET at = excluded.at, did = excluded.did`,
-          email, who, now, who ? this.row(who) : 0);
+          `INSERT INTO interest(email, did, at, used, name, phone, sms, ip)
+           VALUES(?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(email) DO UPDATE SET at = excluded.at, did = excluded.did,
+             name = COALESCE(NULLIF(excluded.name,''), interest.name),
+             phone = COALESCE(NULLIF(excluded.phone,''), interest.phone),
+             sms = MAX(excluded.sms, COALESCE(interest.sms,0)),
+             ip = excluded.ip`,
+          email, who, now, who ? this.row(who) : 0, name, phone, sms, ip);
         return json({ ok:true });
       }
 
       /* Everything the dashboard shows, in one read. */
       case "/dump": {
-        const interest = [...this.sql.exec("SELECT email, at, used FROM interest ORDER BY at DESC")];
+        const interest = [...this.sql.exec(
+          "SELECT email, name, phone, sms, at, used FROM interest ORDER BY at DESC")];
         const t = [...this.sql.exec("SELECT COUNT(*) AS n, COALESCE(SUM(used),0) AS s FROM trials")][0] || {};
         const spent = [...this.sql.exec("SELECT COUNT(*) AS n FROM trials WHERE used >= ?", FREE_CALLS)][0] || {};
         return json({ interest, devices: t.n || 0, sessions: t.s || 0, spent: spent.n || 0 });
       }
 
       case "/export": {
-        const rows = [...this.sql.exec("SELECT email, at, used FROM interest ORDER BY at DESC")];
-        const csv = ["email,signed_up_utc,sessions_used"]
-          .concat(rows.map(r => [r.email, new Date(r.at).toISOString(), r.used].join(",")))
+        const rows = [...this.sql.exec(
+          "SELECT email, name, phone, sms, ip, at, used FROM interest ORDER BY at DESC")];
+        /* Column names chosen to drop straight into a CRM import. */
+        const q = v => '"' + String(v == null ? "" : v).replace(/"/g, '""') + '"';
+        const csv = ["email,first_name,phone,sms_consent,consent_at_utc,consent_ip,signed_up_utc,sessions_used"]
+          .concat(rows.map(r => [r.email, r.name, r.phone, r.sms ? "yes" : "no",
+                                 r.sms ? new Date(r.at).toISOString() : "",
+                                 r.sms ? (r.ip || "") : "",
+                                 new Date(r.at).toISOString(), r.used].map(q).join(",")))
           .join("\n");
         return new Response(csv + "\n", { headers:{ "Content-Type":"text/csv" }});
       }
@@ -513,8 +543,9 @@ async function notify(env, body){
 function adminPage(d, key){
   const esc = t => String(t).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
   const rows = (d.interest || []).map(r =>
-    `<tr><td>${esc(r.email)}</td><td>${new Date(r.at).toISOString().slice(0,16).replace("T"," ")}</td>` +
-    `<td>${r.used == null ? "—" : r.used}</td></tr>`).join("");
+    `<tr><td>${esc(r.email)}${r.name ? `<i>${esc(r.name)}</i>` : ""}</td>` +
+    `<td>${r.phone ? esc(r.phone) + (r.sms ? ` <b title="consented to texts">SMS</b>` : ` <s title="no consent to text">no texts</s>`) : "—"}</td>` +
+    `<td>${new Date(r.at).toISOString().slice(0,16).replace("T"," ")}</td></tr>`).join("");
   return `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex"><title>STATIONS — the list</title>
@@ -536,6 +567,9 @@ th{text-align:left;font-size:10.5px;letter-spacing:1.6px;text-transform:uppercas
 td{padding:11px 0;border-top:1px solid var(--line);color:var(--dim);vertical-align:top}
 td:first-child{color:var(--txt);word-break:break-all}
 td:last-child,th:last-child{text-align:right}
+td i{display:block;font-style:normal;color:var(--dim2);font-size:12.5px}
+td b{font-size:9.5px;letter-spacing:1px;background:#fff;color:#000;padding:1px 5px;border-radius:3px;vertical-align:middle}
+td s{font-size:11px;color:var(--dim2);text-decoration:none}
 a{color:var(--dim2)}
 .empty{border:1px dashed var(--line);border-radius:14px;padding:26px;text-align:center;color:var(--dim2)}
 </style></head><body><div class="w">
@@ -547,7 +581,7 @@ a{color:var(--dim2)}
   <div class="stat"><div class="k">Sessions used</div><div class="v">${d.sessions || 0}</div></div>
   <div class="stat"><div class="k">Hit the wall</div><div class="v">${d.spent || 0}</div></div>
 </div>
-${rows ? `<table><tr><th>Email</th><th>When (UTC)</th><th>Used</th></tr>${rows}</table>`
+${rows ? `<table><tr><th>Who</th><th>Phone</th><th>When (UTC)</th></tr>${rows}</table>`
        : `<div class="empty">Nobody yet. That is information too — it means either
           nobody is reaching the wall, or the wall is not persuading them.</div>`}
 <p style="margin-top:30px"><a href="/interest/export?key=${encodeURIComponent(key)}">Download as CSV</a></p>

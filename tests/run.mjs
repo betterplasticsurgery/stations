@@ -403,14 +403,35 @@ console.log("\nthe wall");
   ok("a malformed email is rejected with a reason", /does not look like an email/i.test(await p.textContent("#duomsg")));
   ok("and the button comes back", await p.evaluate(() => !document.querySelector("#duowantin").disabled));
 
+  /* the consent box must not exist until there is a number to consent about */
+  ok("no consent checkbox before a phone number is typed",
+     await p.evaluate(() => document.querySelector("#duosmsrow").classList.contains("hide")));
+  await p.fill("#duophone", "555 0100 22");
+  ok("it appears once a number is entered",
+     await p.evaluate(() => !document.querySelector("#duosmsrow").classList.contains("hide")));
+  ok("and it starts unticked", await p.evaluate(() => !document.querySelector("#duosms").checked));
+  const consentText = await p.textContent("#duosmsrow");
+  for (const phrase of ["not a condition of purchase", "Message and data rates", "STOP"])
+    ok(`the disclosure says "${phrase}"`, consentText.includes(phrase));
+  await p.fill("#duophone", "");
+  ok("clearing the number hides it again and unticks",
+     await p.evaluate(() => document.querySelector("#duosmsrow").classList.contains("hide")
+                         && !document.querySelector("#duosms").checked));
+
+  await p.fill("#duoname", "Andre");
+  await p.fill("#duophone", "555 0100 22");
+  await p.check("#duosms");
   await p.fill("#duoemail", "andre+test@example.com");
   await p.click("#duowantin");
   await p.waitForFunction(() => /on the list/i.test(document.querySelector("#duowall").textContent),
                           null, { timeout:8000 });
   ok("a good email is accepted and confirmed", true);
   const stored = await (await fetch(`${RELAY}/__interest`)).json();
-  ok("and it actually reached the relay", stored.some(([e]) => e === "andre+test@example.com"),
-     JSON.stringify(stored));
+  const rec = (stored.find(([e]) => e === "andre+test@example.com") || [])[1] || {};
+  ok("and it actually reached the relay", !!rec, JSON.stringify(stored));
+  ok("with the name attached", rec.name === "Andre", JSON.stringify(rec));
+  ok("with the number as typed, not reformatted", rec.phone === "555 0100 22", JSON.stringify(rec));
+  ok("and consent recorded", rec.sms === 1, JSON.stringify(rec));
   await ctx.close();
 }
 
