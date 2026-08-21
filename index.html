@@ -2840,8 +2840,13 @@ async function emblemShare(){
 }
 async function emblemCopy(){
   try{
-    const blob = await emblemBlob();
-    await navigator.clipboard.write([ new ClipboardItem({ "image/png": blob }) ]);
+    if (!navigator.clipboard || !window.ClipboardItem) throw new Error("no clipboard");
+    /* The blob is handed over as a promise, not awaited first. Safari drops
+       user activation across an await, so resolving the blob before calling
+       write() makes it throw NotAllowedError — and Copy silently becomes
+       Save on exactly the phone most people are holding. ClipboardItem has
+       taken a promise since Safari 13.1 and Chrome 76. */
+    await navigator.clipboard.write([ new ClipboardItem({ "image/png": emblemBlob() }) ]);
     return "copied";
   }catch(e){ return emblemDownload(); }
 }
