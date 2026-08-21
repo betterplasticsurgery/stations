@@ -13,6 +13,8 @@ export function startRelay(){
   const used = new Map();          // did -> sessions spent
   const interest = new Map();      // email -> did
   const coachCalls = [];
+  const subs = new Set();
+  const billing = { on:false, calls:[], sessions:new Map() };
   const coachMode = { fail:false, slow:false };
   const json = (res, o, status=200) => {
     res.writeHead(status, {"Content-Type":"application/json","Access-Control-Allow-Origin":"*"});
@@ -35,8 +37,9 @@ export function startRelay(){
     if (u.pathname === "/trial"){
       const did = u.searchParams.get("did") || "";
       const spent = used.get(did) || 0;
+      const sub = subs.has(did);
       return json(res, { used: spent, limit: FREE_CALLS,
-                         remaining: Math.max(0, FREE_CALLS - spent), subscribed: false });
+                         remaining: sub ? 9999 : Math.max(0, FREE_CALLS - spent), subscribed: sub });
     }
     if (u.pathname === "/interest" && req.method === "POST"){
       let body = "";
@@ -78,6 +81,44 @@ export function startRelay(){
       coachCalls.length = 0;
       return json(res, { ok:true, mode: coachMode });
     }
+    /* Billing, stubbed. `billing.on` mirrors the Stripe secrets being set. */
+    if (u.pathname === "/price"){
+      if (!billing.on) return json(res, { ok:false, configured:false });
+      return json(res, { ok:true, configured:true, amount:7.99, currency:"USD",
+                         interval:"month", intervalCount:1, display:"$7.99/month" });
+    }
+    if (u.pathname === "/subscribe" && req.method === "POST"){
+      let body=""; req.on("data",c=>body+=c);
+      req.on("end",()=>{
+        let b={}; try{ b=JSON.parse(body); }catch(e){}
+        if (!billing.on) return json(res, { ok:false, error:"billing is not set up yet" }, 400);
+        if (!b.did)      return json(res, { ok:false, error:"no device" }, 400);
+        const id = "cs_test_" + Math.abs([...String(b.did)].reduce((a,c)=>a*31+c.charCodeAt(0)|0,7));
+        billing.sessions.set(id, { did:b.did, paid:true });
+        billing.calls.push(b);
+        json(res, { ok:true, url:`${u.origin || ""}/__checkout?s=${id}` });
+      });
+      return;
+    }
+    if (u.pathname === "/activate" && req.method === "POST"){
+      let body=""; req.on("data",c=>body+=c);
+      req.on("end",()=>{
+        let b={}; try{ b=JSON.parse(body); }catch(e){}
+        const s = billing.sessions.get(String(b.session_id||""));
+        if (!s || !s.paid) return json(res, { ok:false, error:"that checkout is not complete" }, 400);
+        if (s.did !== b.did) return json(res, { ok:false, error:"that checkout belongs to another device" }, 400);
+        subs.add(b.did);
+        json(res, { ok:true });
+      });
+      return;
+    }
+    if (u.pathname === "/__billing"){
+      billing.on = u.searchParams.get("on") === "1";
+      billing.calls.length = 0; billing.sessions.clear(); subs.clear();
+      return json(res, { ok:true, on:billing.on });
+    }
+    if (u.pathname === "/__billingcalls") return json(res, billing.calls);
+
     if (u.pathname === "/admin"){
       if (u.searchParams.get("key") !== "test-admin-key"){ res.writeHead(404); return res.end(); }
       const rows = [...interest.entries()].map(([e,d]) =>
@@ -108,7 +149,7 @@ export function startRelay(){
     rooms.set(code, room);
     const first = room.peers.size === 0;
 
-    if (first && (used.get(did) || 0) >= FREE_CALLS){
+    if (first && !subs.has(did) && (used.get(did) || 0) >= FREE_CALLS){
       ws.send(JSON.stringify({ t:"blocked", used: used.get(did), limit: FREE_CALLS }));
       ws.close(1008, "trial spent");
       return;

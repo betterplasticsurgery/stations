@@ -888,6 +888,7 @@ body.duo .figwrap{height:min(22vh,178px)}
               stop at any time.</span>
       </label>
       <div class="btnrow" style="margin-top:9px">
+        <button class="btn primary hide" id="duobuy">Subscribe</button>
         <button class="btn primary" id="duowantin">Tell me when it's ready</button>
         <button class="btn" id="duowallno">Not now</button>
       </div>
@@ -4207,7 +4208,7 @@ const DUO_RELAY = (typeof window !== "undefined" && window.STATIONS_RELAY) ||
 const DUO_PRICE = "";
 
 const DUO = {
-  on:false, role:null, code:"", link:"", did:"", left:null,
+  on:false, role:null, code:"", link:"", did:"", left:null, price:undefined, subscribed:false,
   ws:null, pc:null, dc:null, local:null, ice:null,
   connected:false, busy:false, invite:null,
   off:0, rtt:1e9, pings:0, pingTimer:null, beat:null,
@@ -4243,6 +4244,7 @@ async function duoTrial(){
   try{
     const r = await fetch(DUO_RELAY + "/trial?did=" + encodeURIComponent(duoDid()), { cache:"no-store" });
     const j = await r.json();
+    DUO.subscribed = !!j.subscribed;
     DUO.left = j.subscribed ? Infinity : Math.max(0, j.remaining || 0);
     return j;
   }catch(e){
@@ -4253,7 +4255,19 @@ async function duoTrial(){
   }
 }
 
-function duoWall(info){
+/* The price is read from Stripe, never written here, so there is one
+   place it lives and the app can never quote a stale number. */
+async function duoPrice(){
+  if (DUO.price !== undefined) return DUO.price;
+  try{
+    const r = await fetch(DUO_RELAY + "/price", { cache:"no-store" });
+    const j = await r.json();
+    DUO.price = (j && j.ok && j.display) ? j : null;
+  }catch(e){ DUO.price = null; }
+  return DUO.price;
+}
+
+async function duoWall(info){
   const n = (info && info.limit) || 3;
   $("#duopanel").classList.remove("hide");
   $("#duoshare").classList.add("hide");
@@ -4261,11 +4275,24 @@ function duoWall(info){
   $("#duowall").classList.remove("hide");
   $("#duowalltag").textContent = "You have used all " + n + " free sessions";
   if (!$("#duoname").value && PROF.name) $("#duoname").value = PROF.name;
-  $("#duowallbody").textContent =
-    "Training together is going to become a paid feature" +
-    (DUO_PRICE ? " — " + DUO_PRICE + "." : ".") +
-    " Solo workouts stay free forever, and anyone you invite still joins for nothing." +
-    " Leave your email and we'll tell you the moment it opens.";
+  const p = await duoPrice();
+  if (p){
+    /* Billing is live: offer to sell rather than to remember them. */
+    $("#duowallbody").textContent =
+      "Keep training with a friend for " + p.display + ". Solo workouts stay free forever, " +
+      "and whoever you invite still joins for nothing — only the person who starts the call pays.";
+    $("#duobuy").textContent = "Subscribe — " + p.display;
+    $("#duobuy").classList.remove("hide");
+    $("#duowantin").textContent = "Just email me instead";
+    $("#duowantin").classList.remove("primary");
+  } else {
+    $("#duowallbody").textContent =
+      "Training together is going to become a paid feature" +
+      (DUO_PRICE ? " — " + DUO_PRICE + "." : ".") +
+      " Solo workouts stay free forever, and anyone you invite still joins for nothing." +
+      " Leave your email and we'll tell you the moment it opens.";
+    $("#duobuy").classList.add("hide");
+  }
   try{ $("#duoemail").focus({ preventScroll:true }); }catch(e){}
 }
 
@@ -4613,6 +4640,38 @@ function duoShowInvite(){
 }
 
 /* ---------------- joining ---------------- */
+/* Coming back from Stripe. The session id in the URL proves nothing on
+   its own — the relay checks it against Stripe before anything unlocks. */
+async function duoPaidBoot(){
+  const m = String(location.hash || "").match(/[#&]paid=([A-Za-z0-9_]{6,200})/);
+  if (!m) return false;
+  try{ history.replaceState(null, "", location.pathname + location.search); }catch(e){}
+  show("preview");
+  $("#duopanel").classList.remove("hide");
+  $("#duoshare").classList.add("hide");
+  $("#duoinvite").classList.add("hide");
+  $("#duowall").classList.add("hide");
+  duoMsg("Confirming your payment…");
+  try{
+    const r = await fetch(DUO_RELAY + "/activate", {
+      method:"POST", headers:{ "Content-Type":"application/json" },
+      body: JSON.stringify({ session_id: m[1], did: duoDid() })
+    });
+    const j = await r.json();
+    if (j.ok){
+      DUO.subscribed = true; DUO.price = undefined;
+      duoMsg("You're in. Train together is unlocked — start a call whenever you like.");
+    } else {
+      duoMsg((j.error || "We could not confirm that payment") +
+             ". If you were charged, email hello@stations.fit and it will be sorted.", true);
+    }
+  }catch(e){
+    duoMsg("Could not reach the server to confirm. Refresh in a moment — " +
+           "if you were charged, nothing is lost.", true);
+  }
+  return true;
+}
+
 function duoBoot(){
   const m = String(location.hash || "").match(/[#&]duo=([A-Za-z0-9_-]{4,40})/);
   if (!m) return false;
@@ -4718,6 +4777,23 @@ function duoGuestBlocked(){
 
 /* ---------------- events ---------------- */
 $("#duostart").onclick = duoHost;
+$("#duobuy").onclick = async e => {
+  const b = e.currentTarget, was = b.textContent;
+  b.disabled = true; b.textContent = "Opening Stripe…";
+  try{
+    const r = await fetch(DUO_RELAY + "/subscribe", {
+      method:"POST", headers:{ "Content-Type":"application/json" },
+      body: JSON.stringify({ did: duoDid(), email: ($("#duoemail").value||"").trim(),
+                             returnTo: location.origin + location.pathname })
+    });
+    const j = await r.json();
+    if (j.ok && j.url) location.href = j.url;
+    else { b.disabled = false; b.textContent = was; duoMsg(j.error || "Could not open checkout.", true); }
+  }catch(err){
+    b.disabled = false; b.textContent = was;
+    duoMsg("Could not reach the payment page. Try again in a moment?", true);
+  }
+};
 $("#duowallno").onclick = () => { $("#duowall").classList.add("hide"); $("#duopanel").classList.add("hide"); };
 /* No number, nothing to consent to — so the checkbox only appears once
    they have actually typed one. */
@@ -5276,7 +5352,12 @@ function bootMusicAndShare(){
   musRestore();
   // an incoming link wins over the home screen, but only once the music
   // controls exist for it to prefill
-  // an invite outranks a shared link, which outranks the home screen
+  // a payment coming back outranks everything, then an invite,
+  // then a shared link, then the home screen
+  if (String(location.hash||"").indexOf("paid=") >= 0){ duoPaidBoot(); return; }
+  if (String(location.hash||"").indexOf("paidcancel") >= 0){
+    try{ history.replaceState(null, "", location.pathname + location.search); }catch(e){}
+  }
   if (duoBoot()) return;
   if (!shareBoot()) show("home");
 }

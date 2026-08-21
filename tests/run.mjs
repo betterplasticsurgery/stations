@@ -435,6 +435,107 @@ console.log("\nthe wall");
   await ctx.close();
 }
 
+/* ---- billing ---- */
+console.log("\nthe wall when billing is off");
+{
+  const ctx = await browser.newContext({ permissions:["camera","microphone"] });
+  const p = await newPage(ctx, { relay:true });
+  await p.goto(BASE);
+  await fetch(`${RELAY}/__billing?on=0`);
+  const did = await p.evaluate(() => duoDid());
+  await fetch(`${RELAY}/__spend?did=${did}&n=${FREE_CALLS}`);
+  await p.evaluate(() => { generateWorkout(); show("preview"); });
+  await p.click("#duostart");
+  await p.waitForSelector("#duowall:not(.hide)", { timeout:10000 });
+  ok("no Subscribe button when Stripe is not set up",
+     await p.evaluate(() => document.querySelector("#duobuy").classList.contains("hide")));
+  ok("and it still asks for an email", /leave your email|tell us|we'll tell you/i.test(
+     await p.textContent("#duowallbody")));
+  await ctx.close();
+}
+
+console.log("\nthe wall when billing is on");
+{
+  const ctx = await browser.newContext({ permissions:["camera","microphone"] });
+  const p = await newPage(ctx, { relay:true });
+  await p.goto(BASE);
+  await fetch(`${RELAY}/__billing?on=1`);
+  const did = await p.evaluate(() => duoDid());
+  await fetch(`${RELAY}/__spend?did=${did}&n=${FREE_CALLS}`);
+  await p.evaluate(() => { generateWorkout(); show("preview"); });
+  await p.click("#duostart");
+  await p.waitForSelector("#duobuy:not(.hide)", { timeout:10000 });
+  const label = await p.textContent("#duobuy");
+  ok("the Subscribe button carries the real price from Stripe", /\$7\.99\/month/.test(label), label);
+  ok("the price is never hardcoded in the page",
+     await p.evaluate(() => DUO_PRICE === ""), "DUO_PRICE should stay empty");
+  const bodyText = await p.textContent("#duowallbody");
+  ok("and the copy says only the host pays", /only the person who starts the call pays/i.test(bodyText));
+  ok("email capture is still offered as the softer option",
+     /just email me/i.test(await p.textContent("#duowantin")));
+
+  /* it should hand Stripe the device, so the payment can be tied back.
+     Calling the endpoint directly rather than clicking, because clicking
+     navigates away to Stripe. */
+  const sent = await p.evaluate(async () => {
+    const r = await fetch(DUO_RELAY + "/subscribe", {
+      method:"POST", headers:{ "Content-Type":"application/json" },
+      body: JSON.stringify({ did: duoDid(), returnTo: location.origin + location.pathname })
+    });
+    return r.json();
+  });
+  ok("checkout starts and returns somewhere to send them", sent.ok && !!sent.url, JSON.stringify(sent));
+  const calls = await (await fetch(`${RELAY}/__billingcalls`)).json();
+  ok("and the device id travels with it", calls.length && calls[0].did === did, JSON.stringify(calls));
+  await ctx.close();
+}
+
+console.log("\ncoming back from Stripe");
+{
+  const ctx = await browser.newContext({ permissions:["camera","microphone"] });
+  await fetch(`${RELAY}/__billing?on=1`);
+  const p = await newPage(ctx, { relay:true });
+  await p.goto(BASE);
+  const did = await p.evaluate(() => duoDid());
+  const started = await (await fetch(`${RELAY}/subscribe`, { method:"POST",
+    headers:{"Content-Type":"application/json"}, body: JSON.stringify({ did }) })).json();
+  const sid = new URL(started.url, RELAY).searchParams.get("s");
+
+  /* a session id someone else's device started must not unlock this one */
+  const stolen = await p.evaluate(async ([relay, sid]) => {
+    const r = await fetch(relay + "/activate", { method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({ session_id: sid, did: "someone-elses-device" }) });
+    return r.json();
+  }, [RELAY, sid]);
+  ok("a checkout cannot be claimed by another device", stolen.ok === false, JSON.stringify(stolen));
+
+  const forged = await p.evaluate(async ([relay, did]) => {
+    const r = await fetch(relay + "/activate", { method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({ session_id: "cs_test_madeup", did }) });
+    return r.json();
+  }, [RELAY, did]);
+  ok("and an invented session id unlocks nothing", forged.ok === false, JSON.stringify(forged));
+
+  /* A fresh page in the same context: same localStorage, so the same
+     device id, but boot actually runs. Navigating the existing page to
+     the same URL with only a hash added does not reload it. */
+  const back = await newPage(ctx, { relay:true });
+  await back.goto(BASE + "#paid=" + sid);
+  await back.waitForFunction(() => /you're in|could not/i.test(
+    (document.querySelector("#duomsg")||{}).textContent || ""), null, { timeout:15000 });
+  const msg = await back.textContent("#duomsg");
+  ok("a real return from Stripe unlocks it", /you're in/i.test(msg), msg);
+  ok("the session id is scrubbed from the address bar",
+     await back.evaluate(() => location.hash.indexOf("paid=") < 0));
+
+  const st = await back.evaluate(async () => { await duoTrial(); return { sub: DUO.subscribed, left: DUO.left }; });
+  ok("and the trial no longer applies", st.sub === true, JSON.stringify(st));
+  await ctx.close();
+  await fetch(`${RELAY}/__billing?on=0`);
+}
+
 /* ---- 4d. the gate is the server's, not the page's ---- */
 console.log("\nthe gate cannot be edited around");
 {

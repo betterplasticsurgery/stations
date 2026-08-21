@@ -27,6 +27,11 @@
      GET  /interest/export?key= → that list as CSV. Needs ADMIN_KEY.
      GET  /admin?key=     → the same thing as a page you can read
                             on a phone. Needs ADMIN_KEY.
+     GET  /price          → what a subscription costs, read from
+                            Stripe so the app never hardcodes it.
+     POST /subscribe      → a Stripe Checkout session to send them to.
+     POST /activate       → binds a completed checkout to a device.
+     POST /stripe/webhook → cancellations and failed payments.
 
    Deploy: see worker/README.md
    ========================================================= */
@@ -129,6 +134,29 @@ export default {
       return new Response(JSON.stringify(out), {
         status: out.ok ? 200 : 502,
         headers: { ...cors, "Content-Type":"application/json", "Cache-Control":"no-store" }});
+    }
+
+    /* ---- billing ----
+       Every one of these is dead until the Stripe secrets are set, and
+       the wall behaves exactly as it does today in the meantime. */
+    if (url.pathname === "/price"){
+      return new Response(JSON.stringify(await stripePrice(env)), {
+        headers: { ...cors, "Content-Type":"application/json", "Cache-Control":"public, max-age=300" }});
+    }
+    if (url.pathname === "/subscribe" && req.method === "POST"){
+      let b = {}; try{ b = await req.json(); }catch(e){}
+      const out = await stripeCheckout(env, b || {}, url.origin);
+      return new Response(JSON.stringify(out), { status: out.ok ? 200 : 400,
+        headers: { ...cors, "Content-Type":"application/json" }});
+    }
+    if (url.pathname === "/activate" && req.method === "POST"){
+      let b = {}; try{ b = await req.json(); }catch(e){}
+      const out = await stripeActivate(env, b || {});
+      return new Response(JSON.stringify(out), { status: out.ok ? 200 : 400,
+        headers: { ...cors, "Content-Type":"application/json" }});
+    }
+    if (url.pathname === "/stripe/webhook" && req.method === "POST"){
+      return stripeWebhook(env, req);
     }
 
     const m = url.pathname.match(/^\/room\/([A-Za-z0-9_-]{4,40})$/);
@@ -289,6 +317,9 @@ export class Ledger extends DurableObject {
     this.sql.exec(`CREATE TABLE IF NOT EXISTS trials(
       did TEXT PRIMARY KEY, used INTEGER NOT NULL DEFAULT 0,
       first_seen INTEGER NOT NULL, last_seen INTEGER NOT NULL)`);
+    this.sql.exec(`CREATE TABLE IF NOT EXISTS subs(
+      did TEXT PRIMARY KEY, email TEXT, customer TEXT, sub TEXT,
+      status TEXT NOT NULL, at INTEGER NOT NULL)`);
     this.sql.exec(`CREATE TABLE IF NOT EXISTS interest(
       email TEXT PRIMARY KEY, did TEXT, at INTEGER NOT NULL, used INTEGER)`);
     /* This table is already live with the original four columns, and SQLite
@@ -297,6 +328,12 @@ export class Ledger extends DurableObject {
     for (const col of ["name TEXT", "phone TEXT", "sms INTEGER", "ip TEXT"]){
       try{ this.sql.exec(`ALTER TABLE interest ADD COLUMN ${col}`); }catch(e){}
     }
+  }
+
+  subbed(did){
+    if (!did) return false;
+    const r = [...this.sql.exec("SELECT status FROM subs WHERE did = ?", did)];
+    return !!r.length && r[0].status === "active";
   }
 
   row(did){
@@ -316,14 +353,17 @@ export class Ledger extends DurableObject {
       /* Read-only. Used to show "2 of 3 left" before anyone commits. */
       case "/state": {
         const used = did ? this.row(did) : 0;
-        return json({ used, limit:FREE_CALLS, remaining: Math.max(0, FREE_CALLS - used),
-                      subscribed:false });
+        const sub = this.subbed(did);
+        return json({ used, limit:FREE_CALLS,
+                      remaining: sub ? 9999 : Math.max(0, FREE_CALLS - used),
+                      subscribed: sub });
       }
 
       /* Asked before a room opens. A missing did is treated as spent —
          a client that will not identify itself does not get free calls. */
       case "/check": {
         if (!did) return json({ allowed:false, used:FREE_CALLS, limit:FREE_CALLS });
+        if (this.subbed(did)) return json({ allowed:true, subscribed:true, used:0, limit:FREE_CALLS });
         const used = this.row(did);
         return json({ allowed: used < FREE_CALLS, used, limit:FREE_CALLS });
       }
@@ -336,6 +376,27 @@ export class Ledger extends DurableObject {
            ON CONFLICT(did) DO UPDATE SET used = used + 1, last_seen = excluded.last_seen`,
           did, now, now);
         return json({ ok:true, used: this.row(did) });
+      }
+
+      case "/sub": {
+        let b = {}; try{ b = await req.json(); }catch(e){}
+        if (!b.did) return json({ ok:false });
+        this.sql.exec(
+          `INSERT INTO subs(did, email, customer, sub, status, at) VALUES(?, ?, ?, ?, ?, ?)
+           ON CONFLICT(did) DO UPDATE SET email=excluded.email, customer=excluded.customer,
+             sub=excluded.sub, status=excluded.status, at=excluded.at`,
+          String(b.did).slice(0,64), String(b.email||"").slice(0,254),
+          String(b.customer||"").slice(0,64), String(b.sub||"").slice(0,64),
+          String(b.status||"active").slice(0,24), now);
+        return json({ ok:true });
+      }
+
+      /* Cancellations arrive keyed by Stripe's ids, not by device. */
+      case "/unsub": {
+        let b = {}; try{ b = await req.json(); }catch(e){}
+        if (b.sub)      this.sql.exec("UPDATE subs SET status='ended', at=? WHERE sub = ?", now, String(b.sub));
+        if (b.customer) this.sql.exec("UPDATE subs SET status='ended', at=? WHERE customer = ?", now, String(b.customer));
+        return json({ ok:true });
       }
 
       case "/interest": {
@@ -373,7 +434,9 @@ export class Ledger extends DurableObject {
           "SELECT email, name, phone, sms, at, used FROM interest ORDER BY at DESC")];
         const t = [...this.sql.exec("SELECT COUNT(*) AS n, COALESCE(SUM(used),0) AS s FROM trials")][0] || {};
         const spent = [...this.sql.exec("SELECT COUNT(*) AS n FROM trials WHERE used >= ?", FREE_CALLS)][0] || {};
-        return json({ interest, devices: t.n || 0, sessions: t.s || 0, spent: spent.n || 0 });
+        const subs = [...this.sql.exec("SELECT COUNT(*) AS n FROM subs WHERE status='active'")][0] || {};
+        return json({ interest, devices: t.n || 0, sessions: t.s || 0, spent: spent.n || 0,
+                      subscribers: subs.n || 0 });
       }
 
       case "/export": {
@@ -580,10 +643,153 @@ a{color:var(--dim2)}
   <div class="stat"><div class="k">Devices seen</div><div class="v">${d.devices || 0}</div></div>
   <div class="stat"><div class="k">Sessions used</div><div class="v">${d.sessions || 0}</div></div>
   <div class="stat"><div class="k">Hit the wall</div><div class="v">${d.spent || 0}</div></div>
+  <div class="stat"><div class="k">Subscribers</div><div class="v">${d.subscribers || 0}</div></div>
 </div>
 ${rows ? `<table><tr><th>Who</th><th>Phone</th><th>When (UTC)</th></tr>${rows}</table>`
        : `<div class="empty">Nobody yet. That is information too — it means either
           nobody is reaching the wall, or the wall is not persuading them.</div>`}
 <p style="margin-top:30px"><a href="/interest/export?key=${encodeURIComponent(key)}">Download as CSV</a></p>
 </div></body></html>`;
+}
+
+
+/* =========================================================
+   Billing
+   =========================================================
+   Stripe holds the price, the customer and the subscription. This
+   holds one fact: is this device entitled. Everything here is inert
+   until STRIPE_SECRET_KEY and STRIPE_PRICE_ID are set, and the wall
+   falls back to collecting an email exactly as it does now — so a
+   half-finished setup can never take money or block a workout.
+
+   The device id is what entitlement binds to, and it is weak: clearing
+   site data loses the subscription. Stripe still has the customer and
+   their email, so it is recoverable by hand, and the magic-link
+   account replaces this properly. Nobody should be sold a year on this
+   binding without that landing first.
+   ========================================================= */
+
+const STRIPE = "https://api.stripe.com/v1/";
+
+function stripeOn(env){ return !!(env.STRIPE_SECRET_KEY && env.STRIPE_PRICE_ID); }
+
+async function stripeCall(env, path, form, method){
+  const r = await fetch(STRIPE + path, {
+    method: method || (form ? "POST" : "GET"),
+    headers: {
+      "Authorization": "Bearer " + env.STRIPE_SECRET_KEY,
+      "Content-Type": "application/x-www-form-urlencoded"
+    },
+    body: form ? new URLSearchParams(form).toString() : undefined
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error((j.error && j.error.message) || ("stripe " + r.status));
+  return j;
+}
+
+/* The number on the wall comes from Stripe, so there is exactly one
+   place a price lives and the app can never quote a stale one. */
+async function stripePrice(env){
+  if (!stripeOn(env)) return { ok:false, configured:false };
+  try{
+    const p = await stripeCall(env, "prices/" + encodeURIComponent(env.STRIPE_PRICE_ID));
+    const rec = p.recurring || {};
+    const amount = (p.unit_amount == null) ? null : p.unit_amount / 100;
+    return { ok:true, configured:true, amount, currency:(p.currency || "usd").toUpperCase(),
+             interval: rec.interval || "month", intervalCount: rec.interval_count || 1,
+             display: amount == null ? "" :
+               formatMoney(amount, p.currency) + "/" + (rec.interval || "month") };
+  }catch(e){ return { ok:false, configured:true, error:"price unavailable" }; }
+}
+
+function formatMoney(amount, currency){
+  const sym = { usd:"$", gbp:"\u00a3", eur:"\u20ac", cad:"CA$", aud:"A$" }[String(currency||"usd").toLowerCase()];
+  const n = Number.isInteger(amount) ? String(amount) : amount.toFixed(2);
+  return sym ? sym + n : n + " " + String(currency).toUpperCase();
+}
+
+async function stripeCheckout(env, b, origin){
+  if (!stripeOn(env)) return { ok:false, error:"billing is not set up yet" };
+  const did = String(b.did || "").slice(0, 64);
+  if (!did) return { ok:false, error:"no device" };
+  const back = String(b.returnTo || "").slice(0, 200) || "https://stations.fit/";
+  try{
+    const form = {
+      mode: "subscription",
+      "line_items[0][price]": env.STRIPE_PRICE_ID,
+      "line_items[0][quantity]": "1",
+      /* client_reference_id is what ties the payment back to the device
+         without asking anyone to make an account first. */
+      client_reference_id: did,
+      success_url: back + "#paid={CHECKOUT_SESSION_ID}",
+      cancel_url: back + "#paidcancel",
+      allow_promotion_codes: "true"
+    };
+    if (b.email && /^[^@\s]+@[^@\s.]+\.[^@\s]+$/.test(String(b.email))) form.customer_email = String(b.email);
+    const s = await stripeCall(env, "checkout/sessions", form);
+    return { ok:true, url: s.url };
+  }catch(e){ return { ok:false, error: e.message || "could not start checkout" }; }
+}
+
+/* Called when they come back from Stripe. The session id in the URL is
+   not proof of anything on its own — it is checked against Stripe
+   before a single free session is granted. */
+async function stripeActivate(env, b){
+  if (!stripeOn(env)) return { ok:false, error:"billing is not set up yet" };
+  const id  = String(b.session_id || "").slice(0, 200);
+  const did = String(b.did || "").slice(0, 64);
+  if (!id || !did) return { ok:false, error:"missing session" };
+  try{
+    const s = await stripeCall(env, "checkout/sessions/" + encodeURIComponent(id));
+    const paid = s.payment_status === "paid" || s.status === "complete";
+    if (!paid) return { ok:false, error:"that checkout is not complete" };
+    /* The session says which device started it. Trusting the id alone
+       would let anyone paste someone else's and inherit their sub. */
+    if (s.client_reference_id && s.client_reference_id !== did)
+      return { ok:false, error:"that checkout belongs to another device" };
+    await ledger(env).fetch(new Request("https://l/sub", { method:"POST", body: JSON.stringify({
+      did, email: (s.customer_details && s.customer_details.email) || s.customer_email || "",
+      customer: s.customer || "", sub: s.subscription || "", status: "active"
+    })}));
+    return { ok:true };
+  }catch(e){ return { ok:false, error: e.message || "could not confirm that payment" }; }
+}
+
+/* Stripe signs every webhook. An unverified endpoint is an open door
+   that anyone can use to grant themselves a subscription. */
+async function stripeVerify(env, raw, header){
+  if (!env.STRIPE_WEBHOOK_SECRET || !header) return false;
+  const parts = Object.fromEntries(String(header).split(",").map(p => p.split("=", 2)));
+  const t = parts.t, sig = parts.v1;
+  if (!t || !sig) return false;
+  /* Five minutes, so a captured request cannot be replayed later. */
+  if (Math.abs(Date.now()/1000 - Number(t)) > 300) return false;
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(env.STRIPE_WEBHOOK_SECRET),
+    { name:"HMAC", hash:"SHA-256" }, false, ["sign"]);
+  const mac = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(t + "." + raw));
+  const hex = [...new Uint8Array(mac)].map(b => b.toString(16).padStart(2,"0")).join("");
+  if (hex.length !== sig.length) return false;
+  let diff = 0;
+  for (let i = 0; i < hex.length; i++) diff |= hex.charCodeAt(i) ^ sig.charCodeAt(i);
+  return diff === 0;
+}
+
+async function stripeWebhook(env, req){
+  const raw = await req.text();
+  if (!await stripeVerify(env, raw, req.headers.get("Stripe-Signature")))
+    return new Response("bad signature", { status:400 });
+  let ev = {};
+  try{ ev = JSON.parse(raw); }catch(e){ return new Response("bad json", { status:400 }); }
+  const o = (ev.data && ev.data.object) || {};
+  const ended = ["customer.subscription.deleted", "customer.subscription.paused"];
+  const changed = ["customer.subscription.updated"];
+  try{
+    if (ended.includes(ev.type) || (changed.includes(ev.type) && ["canceled","unpaid","incomplete_expired"].includes(o.status))){
+      await ledger(env).fetch(new Request("https://l/unsub", { method:"POST",
+        body: JSON.stringify({ customer: o.customer || "", sub: o.id || "" }) }));
+    }
+  }catch(e){}
+  /* Always 200 once the signature is good — a retry storm helps nobody,
+     and the subscription state is Stripe's to replay. */
+  return new Response("ok", { status:200 });
 }
