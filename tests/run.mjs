@@ -136,7 +136,16 @@ console.log("\nthe coach");
   });
 
   const names = await p.evaluate(() => Object.keys(COACHES).map(k => COACHES[k].name));
-  ok("three personas ship", names.length === 3, names.join(", "));
+  ok("the full intensity ladder ships",
+     ["The Quiet One","The Coach","Sarge","Feral"].every(n => names.includes(n)), names.join(", "));
+  const sizes = await p.evaluate(() => {
+    const out = {};
+    for (const k of Object.keys(COACHES))
+      out[k] = Object.values(COACHES[k].lines).reduce((a,v) => a + (Array.isArray(v)?v.length:1), 0);
+    return out;
+  });
+  ok("every persona has enough lines to not repeat itself early",
+     Object.values(sizes).every(n => n >= 30), JSON.stringify(sizes));
 
   /* it names the exercise when a station starts */
   const said = await p.evaluate(() => {
@@ -195,7 +204,7 @@ console.log("\nthe coach");
   });
   const lines = Object.values(diff).map(d => d.line);
   ok("each persona has its own words", new Set(lines).size === lines.length, JSON.stringify(lines));
-  ok("and its own delivery", new Set(Object.values(diff).map(d => d.rate)).size === 3);
+  ok("and its own delivery", new Set(Object.values(diff).map(d => d.rate)).size >= 3);
 
   /* silence means silence */
   const off = await p.evaluate(() => {

@@ -374,7 +374,8 @@ const FORBIDDEN = [
 const VOICES = {
   coach: "A plain-spoken strength coach. Direct, technical, unsentimental. Cues body position and breathing. Never gushes.",
   sarge: "A drill instructor. Clipped, loud, unsympathetic, faintly funny in its severity. Short sentences. Never comforting.",
-  quiet: "A calm, low-voiced coach who never raises their voice. Breath-led, unhurried, kind without being soft."
+  quiet: "A calm, low-voiced coach who never raises their voice. Breath-led, unhurried, kind without being soft.",
+  feral: "An unhinged, very funny coach. Absurd, hyperbolic, relentless, deadpan. Mocks the person's excuses, their negotiating with themselves, and the situation — NEVER their body, weight or appearance. No profanity."
 };
 
 function clean(line){
