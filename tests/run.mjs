@@ -121,6 +121,108 @@ console.log("\ndeployed relay");
   await ctx.close();
 }
 
+/* ---- the coach ---- */
+console.log("\nthe coach");
+{
+  const ctx = await browser.newContext();
+  const p = await newPage(ctx);
+  await p.goto(BASE);
+  /* coachSpeak is the seam pre-rendered audio will use; standing in for it
+     here means the tests never depend on a headless browser having voices. */
+  await p.evaluate(() => {
+    window.__said = [];
+    window.coachSpeak = (text, id) => window.__said.push({ text, id });
+    generateWorkout();
+  });
+
+  const names = await p.evaluate(() => Object.keys(COACHES).map(k => COACHES[k].name));
+  ok("three personas ship", names.length === 3, names.join(", "));
+
+  /* it names the exercise when a station starts */
+  const said = await p.evaluate(() => {
+    window.__said = [];
+    S.segs = buildTimeline(); S.idx = 0; S.running = true;
+    const wi = S.segs.findIndex(x => x.type === "work");
+    S.idx = wi; S.remain = S.segs[wi].dur * 1000;
+    coachSegment(S.segs[wi], false);
+    return { line: (window.__said[0]||{}).text || "", ex: S.segs[wi].label };
+  });
+  ok("names the exercise at a station", said.line.includes(said.ex), `${said.line} / ${said.ex}`);
+
+  /* the beeps own the last few seconds */
+  const tail = await p.evaluate(() => {
+    window.__said = []; CO.last = -1e9; S.running = true;
+    S.remain = 2000;                       // inside the countdown
+    const spokeLate = coachSay("mid", {});
+    CO.last = -1e9; S.remain = 20000;      // plenty of room
+    const spokeEarly = coachSay("mid", {});
+    return { spokeLate, spokeEarly };
+  });
+  ok("silent inside the final seconds", tail.spokeLate === false);
+  ok("but speaks when there is room", tail.spokeEarly === true);
+
+  /* no line twice until the pool is spent */
+  const rep = await p.evaluate(() => {
+    coachReset(); window.__said = [];
+    const pool = COACHES[CO.id].lines.mid.length;
+    for (let i=0;i<pool;i++){ CO.last = -1e9; S.remain = 20000; coachSay("mid", {}); }
+    const ids = window.__said.map(x => x.id);
+    return { pool, spoken: ids.length, unique: new Set(ids).size };
+  });
+  ok("no line repeats until the pool is spent", rep.unique === rep.spoken && rep.spoken === rep.pool,
+     JSON.stringify(rep));
+
+  /* two lines cannot land on top of each other */
+  const gap = await p.evaluate(() => {
+    coachReset(); window.__said = []; S.remain = 20000; S.running = true;
+    const a = coachSay("mid", {});
+    const b = coachSay("mid", {});          // immediately after
+    return { a, b };
+  });
+  ok("will not speak twice in a row", gap.a === true && gap.b === false);
+
+  /* personas are actually different */
+  const diff = await p.evaluate(() => {
+    const out = {};
+    for (const id of Object.keys(COACHES)){
+      CO.id = id; coachReset(); window.__said = [];
+      CO.last = -1e9; S.remain = 20000;
+      coachSay("work", { ex:"Kettlebell Swing" }, { force:true });
+      out[id] = { line:(window.__said[0]||{}).text||"", rate:COACHES[id].rate };
+    }
+    CO.id = "coach";
+    return out;
+  });
+  const lines = Object.values(diff).map(d => d.line);
+  ok("each persona has its own words", new Set(lines).size === lines.length, JSON.stringify(lines));
+  ok("and its own delivery", new Set(Object.values(diff).map(d => d.rate)).size === 3);
+
+  /* silence means silence */
+  const off = await p.evaluate(() => {
+    coachReset(); window.__said = []; CO.on = false; S.remain = 20000;
+    const spoke = coachSay("mid", {}, { force:true });
+    CO.on = true;
+    return spoke;
+  });
+  ok("Silence turns it off completely", off === false);
+
+  const muted = await p.evaluate(() => {
+    coachReset(); window.__said = []; S.voice = false; CO.last = -1e9; S.remain = 20000;
+    const spoke = coachSay("mid", {}, { force:true });
+    S.voice = true;
+    return spoke;
+  });
+  ok("the voice toggle still mutes it", muted === false);
+
+  /* the picker is wired to the setup screen */
+  const chips = await p.evaluate(() => {
+    show("setup");
+    return document.querySelectorAll("#coaches .coachchip").length;
+  });
+  ok("the setup screen offers all of them plus Silence", chips === 4, chips + " chips");
+  await ctx.close();
+}
+
 /* ---- the landing pages ---- */
 console.log("\nlanding pages");
 {

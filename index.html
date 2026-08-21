@@ -612,6 +612,12 @@ body.duo .figwrap{height:min(22vh,178px)}
 .duotog{border:1px solid var(--line);border-radius:999px;padding:5px 14px;font-size:12px;font-weight:750;color:var(--dim)}
 .duotog.on{background:var(--ink);color:#000;border-color:var(--ink)}
 #duomsg.bad{color:#ff9a9a}
+.coachrow{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:9px;margin:12px 0 4px}
+.coachchip{display:flex;flex-direction:column;align-items:flex-start;gap:3px;text-align:left;
+  padding:12px 13px;min-height:0;line-height:1.3}
+.coachchip b{font-size:14px;font-weight:750}
+.coachchip small{font-size:11.5px;color:var(--dim2);font-weight:500}
+.coachchip.on small{color:#00000099}
 .duowall .big{font-size:clamp(21px,5vw,27px);font-weight:800;letter-spacing:-.5px;line-height:1.15}
 .duowall p{color:var(--dim);font-size:13.5px;line-height:1.5;margin:9px 0 0}
 .duowall input{width:100%;margin-top:13px;background:#ffffff0d;border:1px solid var(--line);
@@ -745,6 +751,17 @@ body.duo .figwrap{height:min(22vh,178px)}
         <div><div class="lab">Total session</div><div class="sub" id="breakdown"></div></div>
         <div class="val" id="totaltime">45:00</div>
       </div>
+    </div>
+  </details>
+
+  <details class="sec" id="secCoach">
+    <summary><span class="sh">Your coach</span><span class="sv" id="coachSum">The Coach</span><span class="sc">›</span></summary>
+    <div class="secbody">
+      <p class="msub" style="margin-top:0">A voice that knows where you are in the session — which round, what is
+         coming, how long is left. Tap one to hear it.</p>
+      <div class="coachrow" id="coaches"></div>
+      <p class="hint">It stays quiet through the last few seconds of every interval, so the countdown beeps
+         still mean something. The 🗣️ button during a session mutes it entirely.</p>
     </div>
   </details>
 
@@ -3230,6 +3247,7 @@ function paintTicks(){
 function startWorkout(){
   S.segs = buildTimeline();
   if (!S.segs.length){ alert("This workout has no segments — add some stations or time."); return; }
+  coachReset();
   S.idx = 0;
   show("run");
   paintTicks();
@@ -3264,15 +3282,14 @@ function enterSeg(first){
     $("#exname").textContent = s.label;
     $("#excue").textContent  = s.cue;
     $("#nextup").innerHTML   = nx ? "Next: <b>"+nx.label+"</b>" : "Last station of the session";
-    if (!first) say(s.label);
   } else {
     $("#exname").textContent = s.label;
     $("#excue").textContent  = s.cue;
     $("#nextup").innerHTML   = nx ? "Up next: <b>"+nx.label+"</b>" : "";
-    if (s.type === "rest" && nx) say("Next, " + nx.label);
-    else if (s.type === "halftime") say("Half time.");
+
   }
   if (s.type === "work" && !first) beep(1200, .16, .3);
+  coachSegment(s, first);
   if (DUO.on) duoSegment(s);
   $("#cHalf").textContent    = s.half==null ? "—" : (s.half+1)+"/"+S.workout.halves.length;
   $("#cRound").textContent   = s.round==null ? "—" : (s.round+1)+"/"+s.rounds;
@@ -3294,6 +3311,7 @@ function tick(){
     S.remain = S.endAt - performance.now();
     const secs = Math.ceil(S.remain/1000);
     if (secs <= 3 && secs >= 1 && secs !== S.lastBeep){ S.lastBeep = secs; beep(760, .09, .22); }
+    coachTick();
     if (S.remain <= 0){ advance(1); return; }
   }
   paint();
@@ -3320,7 +3338,6 @@ function finish(){
   if (DUO.connected && DUO.role === "host") duoTell({ t:"end" });
   clearInterval(S.timer); S.timer = null; S.running = false; keepAwake(false);
   beep(660,.16); setTimeout(()=>beep(880,.16),170); setTimeout(()=>beep(1320,.35),340);
-  say("Session complete. Well done.");
   const work = S.segs.filter(s=>s.type==="work");
   const workSec = work.reduce((a,s)=>a+s.dur,0);
   $("#dTime").textContent = mmss(S.segs.total);
@@ -3345,6 +3362,7 @@ function finish(){
     ex: [...new Set(work.map(s => s.label))],
     rpe: null
   });
+  coachFinish();
   renderConsistency();
   renderEmblem();
   $("#rpeRow").classList.remove("done");
@@ -4743,12 +4761,339 @@ $("#tCam").onclick = () => {
 window.addEventListener("pagehide", () => { if (DUO.on) duoTell({ t:"bye" }); });
 
 /* =========================================================
+   17. THE COACH
+   =========================================================
+   A voice that knows where you are in the session.
+
+   Everything it needs already exists: which round, how long is
+   left, what is coming next, what you rated the last one, how
+   long your streak is. The work here is not plumbing — it is
+   knowing when to speak and, far more often, when not to.
+
+   Three rules do most of that work:
+     · never inside the last few seconds, where the beeps live
+     · never twice in quick succession
+     · never the same line twice until the pool is spent
+
+   Voices are the device's own for now. coachSpeak is the seam
+   where pre-rendered audio drops in: give a line an id, put a
+   clip at that id, and it plays instead of being synthesised.
+   Nothing else changes.
+   ========================================================= */
+
+const COACHKEY = "stations.coach.v1";
+
+const COACHES = {
+  coach: {
+    name:"The Coach", blurb:"Direct, technical, no theatre.",
+    rate:1.02, pitch:1, prefer:["Daniel","Google UK English Male","Alex"],
+    lines:{
+      start:["Right. {n} stations, two halves. Let's work.",
+             "Warm up properly. The session starts warm or it starts badly.",
+             "Easy for now. Loosen up, get your breathing going."],
+      work:["{ex}. Own the first rep and the rest follow.",
+            "{ex}. Set your position before you start moving.",
+            "{ex}. Quality first — speed is what is left over.",
+            "{ex}. Full range. Half reps are half a workout.",
+            "{ex}. Steady tempo, and breathe out on the effort.",
+            "{ex}. Brace before you move."],
+      again:["{ex} again. Match the first round.",
+             "Same movement. This one should look like the last one.",
+             "{ex}, round {r}. Hold the standard."],
+      mid:["Halfway. Hold the shape.",
+           "Do not let the form go now.",
+           "This is the part that counts.",
+           "Keep breathing. Chest up.",
+           "Stay long through the spine.",
+           "You have more than you think you have."],
+      last:["Last round of this half. Spend what is left.",
+            "Final round. Nothing saved."],
+      final:["Last station. All of it.",
+             "This is the last one. Empty the tank."],
+      rest:["Rest. {next} is coming.",
+            "Breathe. {next} next — set up while you can.",
+            "Recover properly. {next} after this.",
+            "Shake it out. {next} is next."],
+      restNoNext:["Rest. Breathe.","Take the rest. You have earned it."],
+      half:["Half time. Water, reset your stations, keep moving.",
+            "That is one half. Drink something and stay warm."],
+      cool:["Cool down. Walk it off, then stretch what you used.",
+            "Bring it down slowly. Do not just stop."],
+      end:["Session complete. Well done.",
+           "That is the work done. Good session.",
+           "Finished. That was a real one."],
+      endStreak:["Session complete. That is {st} days in a row.",
+                 "Done — {st} day streak. That is the whole trick."],
+      endFirst:["First one logged. The second is the hard one — come back."]
+    }
+  },
+
+  sarge: {
+    name:"Sarge", blurb:"Loud, clipped, unsympathetic.",
+    rate:1.14, pitch:0.85, prefer:["Daniel","Fred","Google UK English Male"],
+    lines:{
+      start:["On your feet. Warm up. Move.",
+             "You showed up. Now earn it.",
+             "Warm-up. Do not skip it and do not dawdle."],
+      work:["{ex}. Go.","{ex}. Now.","{ex}. Move.",
+            "{ex}. No thinking about it.",
+            "{ex}. I said now.",
+            "{ex}. Get after it."],
+      again:["{ex} again. Same speed.",
+             "Round {r}. Do not you dare slow down.",
+             "Again. You did it once, do it better."],
+      mid:["Halfway. Do not quit on me.",
+           "That is not tired. Keep going.",
+           "Faster.","Hold it. Hold it.",
+           "Nobody is coming to save you.",
+           "You want it to stop? Finish it."],
+      last:["Last round. Everything you have got.",
+            "Final round. No coasting."],
+      final:["Last one. Leave nothing.",
+             "This is it. Go."],
+      rest:["Rest. {next} next. Get ready.",
+            "Breathe. {next} in a moment. Do not sit down.",
+            "Twenty seconds of mercy. {next} after."],
+      restNoNext:["Rest. Stay on your feet.","Breathe. Do not sit."],
+      half:["Half way. Water. Back here shortly.",
+            "One half down. Do not get comfortable."],
+      cool:["Walk. Do not collapse. Walk.",
+            "Cool down properly. That is an order."],
+      end:["Done. Not bad.","Finished. You will do."],
+      endStreak:["Done. {st} days running. Keep it."],
+      endFirst:["One session. Come back tomorrow and it counts for something."]
+    }
+  },
+
+  quiet: {
+    name:"The Quiet One", blurb:"Calm, low, never raises its voice.",
+    rate:0.92, pitch:1.05, prefer:["Samantha","Google UK English Female","Karen"],
+    lines:{
+      start:["Take your time warming up. There is no rush yet.",
+             "Start easy. Let the body catch up with the idea.",
+             "Loosen up. Nothing hard for a few minutes."],
+      work:["{ex}. Find a rhythm you could hold.",
+            "{ex}. Smooth, not frantic.",
+            "{ex}. Let the breath set the pace.",
+            "{ex}. Relax your jaw and your shoulders.",
+            "{ex}. Controlled. That is the whole thing.",
+            "{ex}. Move well and the rest follows."],
+      again:["{ex} again. Try to make it feel easier than last time.",
+             "The same movement. Notice what changed."],
+      mid:["Halfway. Long exhale.",
+           "Soften your face. You do not need it.",
+           "Breathe out. The effort stays.",
+           "Nothing to prove here. Just keep moving.",
+           "Steady. You are doing fine.",
+           "Let the next breath be slower than the last."],
+      last:["Last round of the half. Stay with it.",
+            "Final round. Same rhythm."],
+      final:["Last station. Finish it kindly.",
+             "One more. Then it is done."],
+      rest:["Rest. {next} next when you are ready.",
+            "Breathe. {next} is coming — no hurry.",
+            "Let the heart rate come down. {next} after."],
+      restNoNext:["Rest here.","Breathe. That is all."],
+      half:["Half time. Water, and give yourself a minute.",
+            "That is half. Walk a little, keep the blood moving."],
+      cool:["Cool down. Slow everything, including the breathing.",
+            "Bring it down. Stretch what feels short."],
+      end:["That is done. Well done.",
+           "Session finished. That was enough."],
+      endStreak:["Finished. {st} days in a row now.",
+                 "Done. {st} days. That consistency is the thing that works."],
+      endFirst:["One session down. That is how all of them start."]
+    }
+  }
+};
+
+const CO = {
+  on:true, id:"coach",
+  used:{},              // pool -> indices already spoken this session
+  last:-1e9, spoken:0, midDone:false, voice:null,
+  audio:null            // reserved: id -> pre-rendered clip URL
+};
+
+const MIN_GAP_MS = 4200;   // never two lines on top of each other
+const QUIET_TAIL = 3.4;    // seconds at the end of a segment that belong to the beeps
+const MAX_LINES  = 90;     // a hard stop so a long session cannot become a podcast
+
+function coachDef(){ return COACHES[CO.id] || COACHES.coach; }
+
+function coachSave(){
+  try{ localStorage.setItem(COACHKEY, JSON.stringify({ on:CO.on, id:CO.id })); }catch(e){}
+}
+function coachLoad(){
+  try{
+    const d = JSON.parse(localStorage.getItem(COACHKEY) || "null");
+    if (d && typeof d === "object"){
+      if (typeof d.on === "boolean") CO.on = d.on;
+      if (COACHES[d.id]) CO.id = d.id;
+    }
+  }catch(e){}
+}
+
+/* Device voices arrive asynchronously and are named differently on every
+   platform, so this is a preference rather than a guarantee. */
+function coachPickVoice(){
+  if (!("speechSynthesis" in window)) return null;
+  const all = speechSynthesis.getVoices() || [];
+  if (!all.length) return null;
+  const want = coachDef().prefer || [];
+  for (const n of want){
+    const v = all.find(x => x.name === n) || all.find(x => x.name.indexOf(n) === 0);
+    if (v) return v;
+  }
+  return all.find(v => /^en[-_]/i.test(v.lang)) || all[0];
+}
+
+/* The seam. Give a line an id and drop a clip at CO.audio[id] and it plays
+   instead of being synthesised — no other code changes. */
+function coachSpeak(text, id){
+  if (CO.audio && id && CO.audio[id]){
+    try{ const a = new Audio(CO.audio[id]); a.volume = 1; a.play(); return; }catch(e){}
+  }
+  if (!("speechSynthesis" in window)) return;
+  try{
+    speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(text);
+    const d = coachDef();
+    u.rate = d.rate; u.pitch = d.pitch; u.volume = 1;
+    CO.voice = CO.voice || coachPickVoice();
+    if (CO.voice) u.voice = CO.voice;
+    speechSynthesis.speak(u);
+  }catch(e){}
+}
+
+function coachFill(t, vars){
+  return String(t).replace(/\{(\w+)\}/g, (_, k) => (vars && vars[k] != null) ? vars[k] : "");
+}
+
+/* Pull a line that has not been used yet this session; reshuffle when the
+   pool runs dry. Hearing the same sentence twice in ten minutes is the
+   fastest way to make a coach feel like a recording. */
+function coachPick(pool){
+  const lines = coachDef().lines[pool];
+  if (!lines || !lines.length) return null;
+  const used = CO.used[pool] || (CO.used[pool] = []);
+  if (used.length >= lines.length) used.length = 0;
+  let i, guard = 0;
+  do { i = Math.floor(Math.random() * lines.length); } while (used.indexOf(i) >= 0 && ++guard < 40);
+  used.push(i);
+  return { text: lines[i], id: CO.id + "." + pool + "." + i };
+}
+
+function coachSay(pool, vars, opts){
+  if (!CO.on || !S.voice) return false;
+  const now = performance.now();
+  if (CO.spoken >= MAX_LINES) return false;
+  if (!(opts && opts.force)){
+    if (now - CO.last < MIN_GAP_MS) return false;
+    /* The last seconds belong to the countdown beeps. Talking over them
+       makes both useless. */
+    if (S.running && S.remain/1000 < QUIET_TAIL) return false;
+  }
+  const line = coachPick(pool);
+  if (!line) return false;
+  CO.last = now; CO.spoken++;
+  coachSpeak(coachFill(line.text, vars), line.id);
+  return true;
+}
+
+/* ---- what the run loop calls ---- */
+
+function coachSegment(s, first){
+  CO.midDone = false;
+  const nx = nextWork(S.idx);
+  const half = S.workout && S.workout.halves[s.half];
+  const lastRound = half && s.round === half.rounds - 1;
+
+  if (s.type === "warmup"){ coachSay("start", { n: workStationCount() }, { force:true }); return; }
+  if (s.type === "halftime"){ coachSay("half", {}, { force:true }); return; }
+  if (s.type === "cooldown"){ coachSay("cool", {}, { force:true }); return; }
+
+  if (s.type === "rest"){
+    if (nx) coachSay("rest", { next: nx.label, ex: s.label });
+    else coachSay("restNoNext", {});
+    return;
+  }
+
+  if (s.type === "work"){
+    if (first) return;                       // the start line already covered it
+    if (!nx) { coachSay("final", { ex:s.label }, { force:true }); return; }
+    if (lastRound && s.station === 0 && s.round > 0){
+      if (coachSay("last", { ex:s.label }, { force:true })) return;
+    }
+    if (s.round > 0) { if (coachSay("again", { ex:s.label, r:s.round+1 }, { force:true })) return; }
+    coachSay("work", { ex:s.label }, { force:true });
+  }
+}
+
+/* Once, somewhere near the middle, and only on an interval long enough that
+   a sentence fits without crowding the beeps. */
+function coachTick(){
+  if (!CO.on || CO.midDone || !S.running) return;
+  const s = S.segs && S.segs[S.idx];
+  if (!s || s.type !== "work" || s.dur < 34) return;
+  const elapsed = s.dur - S.remain/1000;
+  if (elapsed < s.dur * 0.42) return;
+  CO.midDone = true;
+  coachSay("mid", {});
+}
+
+function coachFinish(){
+  const st = typeof histStreak === "function" ? histStreak() : 0;
+  const n = HIST.list.length;
+  if (n <= 1) { coachSay("endFirst", {}, { force:true }); return; }
+  if (st >= 2 && coachSay("endStreak", { st }, { force:true })) return;
+  coachSay("end", {}, { force:true });
+}
+
+function coachReset(){ CO.used = {}; CO.last = -1e9; CO.spoken = 0; CO.midDone = false; }
+
+function workStationCount(){
+  if (!S.workout) return 9;
+  return S.workout.halves.reduce((a,h) => a + h.stations, 0);
+}
+
+/* ---- picking one ---- */
+function renderCoaches(){
+  const wrap = $("#coaches"); if (!wrap) return;
+  wrap.innerHTML = "";
+  Object.keys(COACHES).forEach(id => {
+    const c = COACHES[id];
+    const b = document.createElement("button");
+    b.className = "chip coachchip" + (id === CO.id && CO.on ? " on" : "");
+    b.innerHTML = '<b>' + esc(c.name) + '</b><small>' + esc(c.blurb) + '</small>';
+    b.onclick = () => {
+      CO.id = id; CO.on = true; CO.voice = null;
+      coachSave(); renderCoaches();
+      coachReset();
+      coachSpeak(coachFill(coachPick("work").text, { ex:"Kettlebell Swing" }), null);
+    };
+    wrap.appendChild(b);
+  });
+  const off = document.createElement("button");
+  off.className = "chip coachchip" + (CO.on ? "" : " on");
+  off.innerHTML = '<b>Silence</b><small>Beeps only. No talking.</small>';
+  off.onclick = () => { CO.on = false; coachSave(); renderCoaches();
+                        try{ speechSynthesis.cancel(); }catch(e){} };
+  wrap.appendChild(off);
+  const sum = $("#coachSum");
+  if (sum) sum.textContent = CO.on ? coachDef().name : "Off";
+}
+
+if ("speechSynthesis" in window)
+  try{ speechSynthesis.onvoiceschanged = () => { CO.voice = null; }; }catch(e){}
+
+/* =========================================================
    12. BOOT
    ========================================================= */
 S.cfg = cfgFor(PRESETS[0], goalById(S.goalId));
 S.goalShift = goalById(S.goalId).shift;
 renderPresets(); renderGoals(); renderEquip(); renderConfig();
 profLoad(); histLoad(); histHomeBadge(); renderEquip();
+coachLoad(); renderCoaches();
 // #mixwrap lives after this script, so wait for the full document
 function bootMusicAndShare(){
   musRestore();
