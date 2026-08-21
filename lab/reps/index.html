@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<title>Rep counter — an experiment — STATIONS</title>
+<meta name="description" content="An experiment: counting reps from the phone camera, on device. Nothing is uploaded and nothing is saved.">
+<meta name="robots" content="noindex">
+<link rel="stylesheet" href="/assets/pages.css">
+<style>
+  .stage{position:relative;border:1px solid var(--line);border-radius:16px;overflow:hidden;
+    background:#08080a;margin:18px 0 10px;aspect-ratio:4/3}
+  #cam,#ov{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transform:scaleX(-1)}
+  #cam{background:#000}
+  .count{position:absolute;left:0;right:0;top:14px;text-align:center;font-family:var(--mono);
+    font-weight:800;font-size:clamp(64px,18vw,120px);line-height:1;text-shadow:0 3px 24px #000;
+    font-variant-numeric:tabular-nums}
+  .meta{position:absolute;left:12px;bottom:10px;font-size:11px;color:var(--dim2);font-family:var(--mono)}
+  #status{font-size:13px;color:var(--dim);margin:0 0 10px}
+  #status.bad{color:#ff9a9a}
+  #trace{width:100%;height:74px;display:block;border:1px solid var(--line);border-radius:10px;background:#08080a}
+  .exrow{display:flex;gap:8px;flex-wrap:wrap;margin:14px 0 6px}
+  .exrow button{font-family:inherit;cursor:pointer;border:1px solid var(--line);background:#ffffff0d;
+    color:var(--dim);border-radius:999px;padding:9px 15px;font-size:13.5px;font-weight:650}
+  .exrow button.on{background:#fff;color:#000;border-color:#fff}
+  .ctrls{display:flex;gap:10px;margin-top:12px}
+  .ctrls button{flex:1;font-family:inherit;cursor:pointer;border:1px solid var(--line);
+    background:#ffffff10;color:var(--txt);border-radius:13px;padding:15px;font-weight:750;font-size:15px}
+  .ctrls button#go{background:#fff;color:#000;border-color:#fff;font-weight:850}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header class="top">
+  <a class="brand" href="/"><span>STATIONS</span></a>
+  <nav><a href="/">The app</a></nav>
+</header>
+
+<main>
+  <h1>Counting reps, on the phone</h1>
+  <p class="lede">An experiment, not a feature. It watches one measurement — where your hips are, how far
+     apart your hands are — and counts the swings. Everything happens on this device: no video is uploaded,
+     nothing is recorded, nothing is saved.</p>
+
+  <div class="exrow">
+    <button data-ex="squat" class="on">Squat</button>
+    <button data-ex="pushup">Push-up</button>
+    <button data-ex="jack">Jumping jack</button>
+    <button data-ex="burpee">Burpee</button>
+  </div>
+  <p class="hint" id="hint" style="text-align:left;margin:2px 0 0"></p>
+
+  <div class="stage">
+    <video id="cam" playsinline muted></video>
+    <canvas id="ov"></canvas>
+    <div class="count" id="count">0</div>
+    <div class="meta"><span id="fps">0</span> fps</div>
+  </div>
+  <p id="status">Press start. It will ask for the camera.</p>
+  <canvas id="trace" width="700" height="74"></canvas>
+  <p class="hint" style="text-align:left">That line is the measurement it is counting. The two faint rails are
+     the thresholds a rep has to cross. If the count is wrong, this shows why — a flat line means the movement
+     is too small or you are out of frame, a jagged one means it is losing track of you.</p>
+
+  <div class="ctrls">
+    <button id="go">Start</button>
+    <button id="reset">Reset count</button>
+  </div>
+
+  <h2>What this is testing</h2>
+  <p>Counting reps does not need good pose estimation — it needs one honest periodic signal. Depth can be
+     noisy and a forearm can flip without changing where your hips are over time. That is why this is a day
+     of work and judging your form is months.</p>
+  <p>Each exercise here is a <strong>recipe</strong>: which point to watch, how far it has to travel, and how
+     long to wait before another rep can count. Adding a movement is about fifteen lines, not a new model.
+     Four are here to prove that rather than assert it.</p>
+  <p>Known limits: it needs your whole body in frame in reasonable light, it cannot run while you are on a
+     video call because the camera is busy, and it will not work for carries, planks, or anything that
+     leaves the frame.</p>
+</main>
+
+<footer>
+  <a href="/">STATIONS</a>
+  <a href="/interval-timer/">Interval timer</a>
+  <a href="/hiit-timer/">HIIT timer</a>
+  <a href="/tabata-timer/">Tabata timer</a>
+</footer>
+</div>
+<script type="module" src="/assets/reps.js"></script>
+</body>
+</html>
