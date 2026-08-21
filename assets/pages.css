@@ -78,3 +78,21 @@ footer{border-top:1px solid var(--line);margin-top:52px;padding-top:22px;
   font-size:12.5px;color:var(--dim2);display:flex;gap:16px;flex-wrap:wrap}
 footer a{color:var(--dim2);text-decoration:none}
 footer a:hover{color:var(--txt)}
+
+/* ---- terms and privacy ----
+   Long-form legal text that is meant to be read on a phone: a wider
+   measure than the marketing pages would use, and the two things that
+   actually matter — the health disclaimer and the subscription caveat —
+   given a box so they cannot be scrolled past. */
+.legal main{max-width:64ch}
+.legal h2{font-size:clamp(18px,4vw,22px);margin:38px 0 8px}
+.legal h3{font-size:15px;margin:22px 0 6px}
+.legal .updated{font-size:12px;letter-spacing:1.6px;text-transform:uppercase;
+  font-weight:800;color:var(--dim2);margin:-6px 0 20px}
+.legal .warn{border:1px solid #7d5545;border-left:3px solid #dd5238;border-radius:14px;
+  background:rgba(120,58,40,.16);padding:4px 18px 14px;margin:26px 0}
+.legal .warn h2{margin-top:20px}
+.legal .callout{border:1px solid var(--line);border-radius:12px;background:var(--panel);
+  padding:14px 16px;margin:18px 0}
+.legal .warn p,.legal .callout p{color:var(--dim)}
+.copyline{font-size:11.5px;color:var(--dim2);text-align:center;margin:18px 0 0}

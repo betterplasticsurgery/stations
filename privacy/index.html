@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#2a4657">
+<title>Privacy — STATIONS</title>
+<meta name="description" content="What STATIONS stores on your device, what it never sends anywhere, and why the camera is never recorded or uploaded.">
+<link rel="canonical" href="https://stations.fit/privacy/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="STATIONS">
+<meta property="og:title" content="Privacy — STATIONS">
+<meta property="og:description" content="What STATIONS stores on your device, what it never sends anywhere, and why the camera is never recorded or uploaded.">
+<meta property="og:url" content="https://stations.fit/privacy/">
+<link rel="stylesheet" href="/assets/pages.css">
+</head>
+<body>
+<div class="wrap legal">
+<header class="top">
+  <a class="brand" href="/"><svg viewBox="0 0 1254 1254" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><g transform="translate(0,1254) scale(0.1,-0.1)" fill="currentColor"><path d="M5191 9989 c-285 -31 -611 -140 -873 -292 -544 -318 -903 -822 -1021 -1435 -31 -165 -31 -471 1 -648 85 -473 385 -904 852 -1225 156 -107 302 -190 812 -460 203 -108 250 -114 277 -38 15 44 16 1292 0 1320 -5 11 -83 68 -172 126 -345 226 -472 414 -471 698 1 333 207 606 529 701 56 17 146 18 1265 21 1385 4 1557 0 1641 -40 118 -57 205 -155 241 -272 42 -140 90 -204 183 -247 49 -23 56 -23 405 -23 355 0 355 0 412 27 76 35 151 107 185 177 41 82 41 341 1 502 -65 260 -180 467 -368 662 -170 177 -368 303 -603 381 -222 74 -106 69 -1742 72 -809 1 -1508 -2 -1554 -7z"/><path d="M5749 7937 c-103 -29 -181 -96 -228 -197 -26 -55 -26 -55 -26 -1515 0 -1460 0 -1460 23 -1506 65 -132 204 -205 341 -179 54 10 112 42 906 497 482 277 667 380 691 387 26 8 255 -103 334 -162 510 -380 313 -1165 -325 -1297 -111 -23 -2567 -23 -2664 0 -218 52 -391 231 -449 466 -32 128 -80 190 -181 238 -56 26 -56 26 -391 26 -327 0 -336 -1 -392 -23 -75 -30 -147 -96 -189 -174 -34 -63 -34 -63 -37 -232 -5 -208 9 -330 53 -485 156 -546 622 -957 1206 -1063 124 -23 124 -23 1609 -23 1643 0 1545 -3 1815 65 906 228 1566 1075 1565 2008 -1 604 -262 1145 -734 1521 -126 101 -264 191 -533 352 -104 62 -243 145 -310 185 -66 41 -159 95 -205 122 -45 27 -144 85 -218 129 -74 44 -229 135 -345 202 -115 68 -318 187 -450 266 -132 78 -285 168 -340 200 -55 32 -131 77 -170 101 -152 93 -255 120 -356 91z m404 -948 c46 -24 326 -187 667 -389 118 -70 281 -166 361 -213 160 -94 181 -116 182 -187 1 -79 -11 -89 -365 -290 -178 -101 -359 -205 -403 -231 -84 -48 -266 -152 -398 -226 -110 -61 -187 -53 -229 27 -27 51 -28 1401 -1 1457 33 70 108 91 186 52z"/></g></svg><span>STATIONS</span></a>
+  <nav><a href="/terms/">Terms</a> · <a href="/privacy/">Privacy</a></nav>
+</header>
+
+<main>
+<h1>Privacy</h1>
+<p class="updated">Last updated 21 August 2026</p>
+<p class="lede">The short version: almost everything STATIONS knows about you never leaves your phone,
+   there are no analytics and no advertising trackers, and the camera is never recorded or uploaded.
+   The long version is below, and it is written to match what the code actually does.</p>
+
+<div class="warn">
+  <h2 id="camera">The camera</h2>
+  <p><strong>Video is never recorded, never uploaded, and never sent to your training partner.</strong>
+     If you turn on rep counting, frames are read on your device, converted into a single number — how
+     high your hips are, say — and thrown away. Nothing is stored and nothing is transmitted.</p>
+  <p><strong>It is off unless you turn it on, and then it only wakes for stations it can count.</strong>
+     It opens a few seconds before one of the thirty movements it can count, closes when that interval
+     ends, and stays off through every rest, hold, carry and machine station. A session with nothing
+     countable in it never opens the camera at all.</p>
+  <p>The one thing that does leave: the pose model is downloaded the first time you use it, from
+     jsdelivr and Google's model host. Downloading a file tells that server your IP address, the same
+     as loading any image on the internet. No video, and no data about you, goes with it.</p>
+</div>
+
+<h2>What stays on your device and never reaches us</h2>
+<p>Stored in your browser, readable only by this site on this device:</p>
+<ul>
+  <li>Your workout history — dates, formats, durations, exercises, how hard it felt.</li>
+  <li>Your profile — the name you chose, your avatar, your weight if you gave it, your training days,
+      the areas you said were sore, your ceiling height and equipment, your experience level.</li>
+  <li>Your coach, your music choice and whether rep counting is on.</li>
+  <li>A random device id, described below.</li>
+</ul>
+<p>We cannot see any of it. Clearing your browser's site data deletes all of it permanently, and we
+   cannot get it back for you because we never had it.</p>
+
+<h3>The device id</h3>
+<p>A random string generated in your browser the first time you use the app. It is not derived from
+   anything about you or your phone, and it identifies nothing outside STATIONS. It exists so the relay
+   can tell whether this browser has used its free call and whether it has a subscription.</p>
+
+<h2>What you choose to send us</h2>
+<p>When you ask about the paid version, you give us your <strong>email address</strong>, and optionally
+   your <strong>name</strong> and <strong>phone number</strong>. We store those, along with your device
+   id, the time, and the IP address the request came from, which we keep so we can spot abuse.</p>
+<p>We use them to tell you when the paid version is ready and to answer you when you write to us.</p>
+<p><strong>Text messages only if you tick the box.</strong> Leaving it unticked means we will not text
+   you, even if you gave us a number. If you tick it and change your mind, reply STOP or email us.
+   Message rates from your carrier may apply.</p>
+<p>We do not sell your details, and we do not share them with anyone for their own marketing.</p>
+
+<h2>The coach</h2>
+<p>The written personas run entirely on your device. If you turn on a fresh script, we send the shape of
+   your session to our own server, which asks a language model to write lines for it: the names of your
+   stations, how many sessions you have logged, your streak, how long the session is, and how hard the
+   last one felt. <strong>No name, no email, no video, and nothing that identifies you.</strong></p>
+
+<h2>Video calls</h2>
+<p>Our relay passes the two browsers the details they need to find each other. Once connected, video and
+   audio go directly between you and your partner wherever the network allows. Where it does not, the
+   encrypted stream is relayed through a server so the call still works. We do not record calls, and we
+   cannot see inside a relayed one.</p>
+
+<h2>Payments</h2>
+<p>Stripe handles payment. <strong>We never see your card number.</strong> Stripe receives your email
+   address and holds the payment details under its own privacy policy. We store only which device has an
+   active subscription and the identifiers Stripe gives us for it.</p>
+
+<h2>Music</h2>
+<p>Music is off by default. When you turn it on, a SoundCloud or Mixcloud player is embedded from their
+   servers, which lets them see your IP address and set their own cookies. That is their doing, not ours,
+   and their privacy policies apply. We do not receive anything about what you listen to.</p>
+
+<h2>Server logs</h2>
+<p>The site is hosted on GitHub Pages and the relay runs on Cloudflare. Both keep ordinary server logs,
+   which include IP addresses and browser details, for security and reliability. We do not build
+   profiles from them.</p>
+
+<h2>What we do not do</h2>
+<ul>
+  <li>No analytics — no Google Analytics, no Meta pixel, no heatmaps, no session recording.</li>
+  <li>No advertising, and no data sold or given to advertisers.</li>
+  <li>No cookies of our own. What the app remembers, it remembers in your browser's local storage.</li>
+</ul>
+
+<h2>How long we keep things</h2>
+<p>Waitlist and subscriber details are kept while your interest or subscription is live, and for a
+   reasonable period after, so we can handle billing questions and honour opt-outs. Ask and we will
+   delete them sooner.</p>
+
+<h2>Your choices</h2>
+<p>Email <a href="mailto:hello@stations.fit">hello@stations.fit</a> to see what we hold about you, to
+   correct it, or to have it deleted. Everything held on your device you can delete yourself by clearing
+   the site's data in your browser. Depending on where you live you may have further rights over your
+   personal data, and we will honour them.</p>
+
+<h2>Age</h2>
+<p>STATIONS is not intended for under-16s and we do not knowingly collect anything from them. If you
+   believe a child has sent us details, write to us and we will delete them.</p>
+
+<h2>Changes</h2>
+<p>We will update this page when the product changes and move the date at the top.</p>
+
+<h2>Contact</h2>
+<p><a href="mailto:hello@stations.fit">hello@stations.fit</a></p>
+</main>
+
+<footer>
+  <a href="/">STATIONS</a>
+  <a href="/interval-timer/">Interval timer</a>
+  <a href="/terms/">Terms</a>
+  <a href="/privacy/">Privacy</a>
+  <a href="https://www.instagram.com/stationsfitapp/" rel="noopener">Instagram</a>
+</footer>
+<p class="copyline">© 2026 Andre Rafizadeh. All rights reserved.</p>
+</div>
+</body>
+</html>
