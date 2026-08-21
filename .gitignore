@@ -7,6 +7,9 @@ CLAUDE.md
 !og.png
 _to_delete/
 
+# marketing source — drafts and social art, not part of the deployable
+marketing/
+
 # agent pipeline — local working files
 .pipeline/
 .claude/
