@@ -147,13 +147,67 @@ In this order, and the order is the policy:
    leaving somebody with two accounts and one subscription.
 3. **Neither** → a new account, and this device's history comes with it.
 
-## What is not here yet
+## Sign in by email
 
-Magic-link email sign-in. It is the same account, reached a second way,
-and it needs a mail provider (Resend) with the domain verified before it
-can exist. When that lands, `email` on the accounts table is already
-waiting for it, and a code and a link will both get you into the same
-account.
+The third door. Built, and dark until a mail provider is configured.
 
-Until then: **the code is the only way back in.** That is stated on
-/terms/, and it should stay stated there.
+### 1. Resend
+
+Sign up at [resend.com](https://resend.com) — free tier is 3,000 emails a
+month. **Domains → Add Domain → `stations.fit`.** It gives you three
+records to add at Cloudflare → stations.fit → DNS → Records:
+
+| Type | Name | Notes |
+|---|---|---|
+| MX | `send` | priority 10 — if 10 is taken use 20 |
+| TXT | `send` | the SPF value Resend gives you |
+| TXT | `resend._domainkey` | the DKIM value — **Proxy status: DNS only** |
+
+In Cloudflare's Name field type only `send` or `resend._domainkey`; it
+appends the domain itself, and typing the full one gives you
+`send.stations.fit.stations.fit`.
+
+These live on the `send` subdomain, so they do not touch the MX and SPF
+that Email Routing puts on the root. No SPF to merge, no MX clash, and
+the From address is still `hello@stations.fit`.
+
+### 2. Two secrets
+
+| Name | Value |
+|---|---|
+| `RESEND_API_KEY` | Resend → API Keys → **Sending access** only |
+| `NOTIFY_FROM` | `STATIONS <hello@stations.fit>` |
+
+**`NOTIFY_FROM` has to be on the verified domain.** It defaults to
+resend.dev, which is fine for the admin notification — that goes to one
+inbox that expects it — and not fine for a sign-in link, which lands in
+spam from a shared testing domain. A sign-in link in spam is a broken
+product, so the email field does not appear at all until both are set.
+
+### 3. Prove it before you rely on it
+
+Send to a real Gmail **and** a real iCloud address and check the spam
+folders in both. iCloud is the strict one and it is where a lot of
+iPhone users are. This is the step everybody skips and it is the only
+one that tells you whether the feature works.
+
+### How a link behaves
+
+- Good for **fifteen minutes**, and it works **once**. A signed token that
+  keeps working is a forwarded email that keeps working.
+- Five requests an hour per address and per IP. A sign-in form without
+  that is a way to mailbomb somebody.
+- A used link says *"that link was already used — ask for another and it
+  will work"* rather than failing generically. Corporate mail scanners
+  click links before the human does, and Outlook's Safe Links will burn a
+  token this way; the message has to be one somebody can act on.
+- One address is one account, so a link and a Google sign-in for the same
+  address converge rather than leaving somebody with two accounts and one
+  subscription.
+
+## Three doors, one account
+
+Google, a link, or a recovery code. They all end at the same uid, and any
+of them can be added to an account that already exists. Nobody is forced
+through an identity provider they dislike, and nobody has to keep a code
+they will lose.

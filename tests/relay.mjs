@@ -17,8 +17,9 @@ export function startRelay(){
   /* Accounts, stubbed with the same shape as the Worker's: a token that
      names an account, a code that moves it, and a generation that a
      rotation bumps so old tokens stop working. */
-  const accounts = { on:false, google:false, gfail:"", byUid:new Map(), byCode:new Map(),
-                     byGsub:new Map(), n:0 };
+  const accounts = { on:false, google:false, mail:false, gfail:"", byUid:new Map(),
+                     byCode:new Map(), byGsub:new Map(), byEmail:new Map(),
+                     links:[], used:new Set(), rate:new Map(), n:0 };
   const bearer = req => {
     const h = req.headers["authorization"] || "";
     if (!h.startsWith("Bearer ")) return null;
@@ -132,10 +133,11 @@ export function startRelay(){
     /* ---- accounts, stubbed ---- */
     if (u.pathname === "/account/me"){
       const a = bearer(req);
-      if (!a) return json(res, { ok:true, available: accounts.on, google: accounts.google, signedIn:false });
+      if (!a) return json(res, { ok:true, available: accounts.on, google: accounts.google,
+                                 mail: accounts.mail, signedIn:false });
       const sub = subs.has(a.uid) || [...a.dids].some(d => subs.has(d));
-      return json(res, { ok:true, available:true, google: accounts.google, signedIn:true,
-                         uid:a.uid, email:a.email || "", subscribed:sub });
+      return json(res, { ok:true, available:true, google: accounts.google, mail: accounts.mail,
+                         signedIn:true, uid:a.uid, email:a.email || "", subscribed:sub });
     }
     /* Google's half of the round trip, collapsed: the real thing leaves
        for accounts.google.com and comes back here. What the app has to
@@ -172,6 +174,18 @@ export function startRelay(){
         let b={}; try{ b=JSON.parse(body); }catch(e){}
         if (!accounts.on) return json(res, { ok:false, error:"accounts are not set up yet" }, 400);
 
+        if (u.pathname === "/account/link/start"){
+          if (!accounts.mail) return json(res, { ok:false, error:"email sign-in is not set up yet" }, 400);
+          const email = String(b.email || "").trim().toLowerCase();
+          if (!/^[^@\s]+@[^@\s.]+\.[^@\s]+$/.test(email))
+            return json(res, { ok:false, error:"that does not look like an email" }, 400);
+          const n = (accounts.rate.get(email) || 0) + 1;
+          accounts.rate.set(email, n);
+          if (n > 5) return json(res, { ok:false, error:"too many links requested — try again in an hour" }, 400);
+          const nonce = "nonce" + accounts.links.length;
+          accounts.links.push({ email, nonce, back: b.back || "/" });
+          return json(res, { ok:true });
+        }
         if (u.pathname === "/account/new"){
           if (!b.did) return json(res, { ok:false, error:"no device" }, 400);
           const uid = "u" + (++accounts.n);
@@ -212,9 +226,36 @@ export function startRelay(){
       });
       return;
     }
+    /* The click on the link in the email, which the tests do by hand. */
+    if (u.pathname === "/account/link/finish"){
+      const n = u.searchParams.get("t") || "";
+      const link = accounts.links.find(l => l.nonce === n);
+      const back = link ? link.back : "/";
+      if (!link){ res.writeHead(302,{Location: back + "#in_err=" + encodeURIComponent("that link is not valid")}); return res.end(); }
+      if (accounts.used.has(n)){
+        res.writeHead(302,{Location: back + "#in_err=" +
+          encodeURIComponent("that link was already used — ask for another and it will work")});
+        return res.end();
+      }
+      accounts.used.add(n);
+      let a = accounts.byEmail.get(link.email);
+      if (!a){
+        const uid = "m" + (++accounts.n);
+        a = { uid, gen:1, code:null, dids:new Set(), email: link.email };
+        accounts.byUid.set(uid, a);
+      }
+      accounts.byEmail.set(link.email, a);
+      res.writeHead(302, { Location: back + "#in=" + encodeURIComponent(a.uid + "." + a.gen) });
+      return res.end();
+    }
+    if (u.pathname === "/__links") return json(res, accounts.links);
+
     if (u.pathname === "/__accounts"){
       accounts.on = u.searchParams.get("on") === "1";
       accounts.google = u.searchParams.get("google") === "1";
+      accounts.mail = u.searchParams.get("mail") === "1";
+      accounts.links.length = 0; accounts.used.clear(); accounts.rate.clear();
+      accounts.byEmail.clear();
       accounts.gfail = u.searchParams.get("gfail") || "";
       accounts.byUid.clear(); accounts.byCode.clear(); accounts.byGsub.clear(); accounts.n = 0;
       return json(res, { ok:true, on:accounts.on, google:accounts.google });

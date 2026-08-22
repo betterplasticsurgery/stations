@@ -1020,6 +1020,88 @@ await fetch(`${RELAY}/__accounts?on=1&google=1`);
   await ctx.close();
 }
 
+/* ---- 23c. the magic link ----
+   The cryptography is tested in account.test.mjs. What is tested here is
+   the inbox: a link works once, an expired or reused one says so
+   usefully, and asking too often is refused. */
+console.log("\nsigning in by email");
+await fetch(`${RELAY}/__accounts?on=1&mail=1`);
+{
+  const ctx = await browser.newContext();
+  const p = await newPage(ctx, { relay:true });
+  await p.goto(BASE);
+  const me = await p.evaluate(() => acMe());
+  ok("the app is told email sign-in is available", me.mail === true, JSON.stringify(me));
+
+  const bad = await p.evaluate(() => acLink("not-an-email"));
+  ok("a bad address is refused", bad.ok === false && /email/i.test(bad.error || ""), JSON.stringify(bad));
+
+  const sent = await p.evaluate(() => acLink("andre@example.com"));
+  ok("a good one is accepted", sent.ok === true, JSON.stringify(sent));
+
+  const links = await (await fetch(`${RELAY}/__links`)).json();
+  ok("and a link was actually generated", links.length === 1, JSON.stringify(links));
+  ok("addressed to them", links[0].email === "andre@example.com");
+  /* The link goes back to the page it was asked for, not to a default. */
+  ok("pointing back at the page they asked from", /index\.html$/.test(links[0].back), links[0].back);
+
+  /* Tap it. */
+  await p.goto(`${RELAY}/account/link/finish?t=${links[0].nonce}`);
+  await p.waitForFunction(() => AC && AC.uid, null, { timeout:15000 });
+  const after = await p.evaluate(() => ({ uid: AC.uid, email: AC.email, hash: location.hash }));
+  ok("tapping the link signs you in", !!after.uid, JSON.stringify(after));
+  ok("and the token is scrubbed from the address bar", after.hash === "", after.hash);
+
+  /* Tapping it again must not work — a link that keeps working is a
+     forwarded email that keeps working. */
+  await p.goto(`${RELAY}/account/link/finish?t=${links[0].nonce}`);
+  await p.waitForFunction(() => AC && AC.note, null, { timeout:15000 });
+  const again = await p.evaluate(() => AC.note);
+  ok("a link only works once", /already used/i.test(again), again);
+  ok("and says so in a way you can act on", /ask for another/i.test(again), again);
+
+  await ctx.close();
+}
+{
+  /* Same address twice is the same account — this is what stops a link
+     and a Google sign-in leaving somebody with two. */
+  const ctx = await browser.newContext();
+  const p = await newPage(ctx, { relay:true });
+  await p.goto(BASE);
+  await p.evaluate(() => acLink("andre@example.com"));
+  const links = await (await fetch(`${RELAY}/__links`)).json();
+  const last = links[links.length - 1];
+  await p.goto(`${RELAY}/account/link/finish?t=${last.nonce}`);
+  await p.waitForFunction(() => AC && AC.uid, null, { timeout:15000 });
+  const uid = await p.evaluate(() => AC.uid);
+  ok("the same address is the same account on another browser", uid === "m1", uid);
+  await ctx.close();
+}
+{
+  /* Asking over and over is how you turn a sign-in form into a way of
+     mailbombing somebody. */
+  const ctx = await browser.newContext();
+  const p = await newPage(ctx, { relay:true });
+  await p.goto(BASE);
+  const results = [];
+  for (let i = 0; i < 7; i++) results.push(await p.evaluate(() => acLink("spam@example.com")));
+  ok("asking too many times is refused", results.some(r => r.ok === false), JSON.stringify(results.map(r=>r.ok)));
+  ok("and says when to try again", /hour/i.test(results[results.length-1].error || ""),
+     results[results.length-1].error);
+  await ctx.close();
+}
+{
+  await fetch(`${RELAY}/__accounts?on=1&mail=0`);
+  const ctx = await browser.newContext();
+  const p = await newPage(ctx, { relay:true });
+  await p.goto(BASE);
+  const j = await p.evaluate(() => acLink("andre@example.com"));
+  ok("with no mail provider it refuses rather than pretending", j.ok === false, JSON.stringify(j));
+  await p.evaluate(async () => { await acMe(); acRender(); });
+  ok("and the app offers no email field at all", await p.$("#acsend") === null);
+  await ctx.close();
+}
+
 /* ---- 24. accounts off ---- */
 console.log("\naccounts, before the secret is set");
 await fetch(`${RELAY}/__accounts?on=0`);

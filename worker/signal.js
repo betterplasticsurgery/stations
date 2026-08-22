@@ -39,11 +39,8 @@
      POST /account/rotate → a fresh code, killing the old one.
      GET  /account/google/start    → off to Google.
      GET  /account/google/callback → back from Google, with a session.
-
-   Not here yet: magic-link sign-in. The accts table carries an email
-   column so it can land without a migration, but there are no /link
-   routes and nothing sends mail. The recovery code is the only way an
-   account moves between devices today, and /terms/ says so.
+     POST /account/link/start      → email somebody a sign-in link.
+     GET  /account/link/finish     → that link, clicked.
 
    Deploy: see worker/README.md
    ========================================================= */
@@ -182,6 +179,9 @@ export default {
       let b = {}; if (req.method === "POST") { try{ b = await req.json(); }catch(e){} }
 
       /* Redirects, not JSON — these two are navigated to, not fetched. */
+      if (url.pathname === "/account/link/finish")     return linkFinish(env, url);
+      if (url.pathname === "/account/link/start" && req.method === "POST")
+        return j(await linkStart(env, req, b || {}));
       if (url.pathname === "/account/google/start")    return googleStart(env, req, url);
       if (url.pathname === "/account/google/callback") return googleCallback(env, url);
       if (url.pathname === "/account/me")
@@ -396,6 +396,16 @@ export class Ledger extends DurableObject {
     /* Google's sub, not the email address: Google is explicit that sub is
        unique and never reused, and that an address can change hands. */
     this.sql.exec(`CREATE UNIQUE INDEX IF NOT EXISTS accts_gsub ON accts(gsub)`);
+    /* One address, one account — so signing in by link reaches the same
+       account Google made, rather than a second one beside it. SQLite
+       lets a unique index hold many NULLs, which is what accounts with
+       no address yet have. */
+    this.sql.exec(`CREATE UNIQUE INDEX IF NOT EXISTS accts_email ON accts(email)`);
+    /* Sign-in links, burned on use. Rows are swept when they expire. */
+    this.sql.exec(`CREATE TABLE IF NOT EXISTS once(n TEXT PRIMARY KEY, until INTEGER NOT NULL)`);
+    /* Rate limiting, one row per attempt, counted over the last hour. */
+    this.sql.exec(`CREATE TABLE IF NOT EXISTS hits(k TEXT NOT NULL, at INTEGER NOT NULL)`);
+    this.sql.exec(`CREATE INDEX IF NOT EXISTS hits_k ON hits(k, at)`);
     /* trials and subs were keyed by device before accounts existed. The
        column is added rather than the tables rebuilt, and every existing
        row keeps working with a null uid until a device claims it. */
@@ -603,6 +613,61 @@ export class Ledger extends DurableObject {
         return json({ ok:true, uid, gen: 1 });
       }
 
+      /* A nonce may be claimed exactly once. The insert is the claim —
+         the primary key does the work, so there is no read-then-write
+         for two simultaneous clicks to race through. */
+      case "/acct/once": {
+        let b = {}; try{ b = await req.json(); }catch(e){}
+        const n = String(b.n || "");
+        if (!n) return json({ ok:false });
+        this.sql.exec("DELETE FROM once WHERE until < ?", now);
+        try{
+          this.sql.exec("INSERT INTO once(n, until) VALUES(?, ?)",
+            n, now + Number(b.ttl || 900000));
+        }catch(e){ return json({ ok:false }); }
+        return json({ ok:true });
+      }
+
+      /* Requests in the last hour, for every key at once. Any key over
+         the limit refuses the lot — an address and an IP are two ways of
+         being the same person trying too often. */
+      case "/rate": {
+        let b = {}; try{ b = await req.json(); }catch(e){}
+        const keys = (b.keys || []).filter(Boolean).map(String);
+        const max = Number(b.max || 5), since = now - 3600000;
+        this.sql.exec("DELETE FROM hits WHERE at < ?", since);
+        for (const k of keys){
+          const r = [...this.sql.exec("SELECT COUNT(*) AS n FROM hits WHERE k = ? AND at >= ?", k, since)];
+          if (r.length && r[0].n >= max) return json({ ok:false });
+        }
+        for (const k of keys) this.sql.exec("INSERT INTO hits(k, at) VALUES(?, ?)", k, now);
+        return json({ ok:true });
+      }
+
+      /* Find by address, or make one. This is where a link and a Google
+         sign-in for the same address converge on one account. */
+      case "/acct/byemail": {
+        let b = {}; try{ b = await req.json(); }catch(e){}
+        const email = String(b.email || "").trim().toLowerCase();
+        const dev = String(b.did || "");
+        if (!email) return json({ ok:false });
+        const r = [...this.sql.exec("SELECT uid, gen FROM accts WHERE email = ?", email)];
+        if (r.length){
+          this.sql.exec("UPDATE accts SET seen = ? WHERE uid = ?", now, r[0].uid);
+          this.claim(r[0].uid, dev);
+          return json({ ok:true, uid: r[0].uid, gen: r[0].gen });
+        }
+        const uid = "m" + [...crypto.getRandomValues(new Uint8Array(12))]
+          .map(x => x.toString(16).padStart(2,"0")).join("");
+        try{
+          this.sql.exec(
+            `INSERT INTO accts(uid, email, gen, created, seen) VALUES(?, ?, 1, ?, ?)`,
+            uid, email, now, now);
+        }catch(e){ return json({ ok:false }); }
+        this.claim(uid, dev);
+        return json({ ok:true, uid, gen: 1 });
+      }
+
       case "/acct/rotate": {
         let b = {}; try{ b = await req.json(); }catch(e){}
         if (!b.uid || !b.hash) return json({ ok:false });
@@ -801,22 +866,30 @@ async function coachScript(env, body){
 
    Set RESEND_API_KEY and ADMIN_EMAIL to turn it on.
    ========================================================= */
+/* One place that talks to the mail provider, so swapping it later is one
+   function and not a search. */
+async function sendMail(env, to, subject, text){
+  if (!env.RESEND_API_KEY) return false;
+  try{
+    const r = await fetch("https://api.resend.com/emails", {
+      method:"POST",
+      headers:{ "Authorization":"Bearer " + env.RESEND_API_KEY, "Content-Type":"application/json" },
+      body: JSON.stringify({
+        from: env.NOTIFY_FROM || "STATIONS <onboarding@resend.dev>",
+        to: [to], subject, text })
+    });
+    return r.ok;
+  }catch(e){ return false; }
+}
+
 async function notify(env, body){
   if (!env.RESEND_API_KEY || !env.ADMIN_EMAIL) return;
   const who = String((body && body.email) || "").slice(0, 254);
   if (!who) return;
-  await fetch("https://api.resend.com/emails", {
-    method:"POST",
-    headers:{ "Authorization":"Bearer " + env.RESEND_API_KEY, "Content-Type":"application/json" },
-    body: JSON.stringify({
-      from: env.NOTIFY_FROM || "STATIONS <onboarding@resend.dev>",
-      to: [env.ADMIN_EMAIL],
-      subject: "Someone hit the wall: " + who,
-      text: who + " used up their three free sessions and asked to be told when "
-          + "Train together opens.\n\nThe whole list: "
-          + "https://stations-signal.andre-rafizadeh.workers.dev/admin?key=YOUR_ADMIN_KEY\n"
-    })
-  });
+  await sendMail(env, env.ADMIN_EMAIL, "Someone hit the wall: " + who,
+    who + " used up their three free sessions and asked to be told when "
+        + "Train together opens.\n\nThe whole list: "
+        + "https://stations-signal.andre-rafizadeh.workers.dev/admin?key=YOUR_ADMIN_KEY\n");
 }
 
 /* A page rather than a CSV, because the question this answers — has
@@ -1068,10 +1141,12 @@ async function acctRotate(env, req, b){
    evidence that the feature is off. */
 async function acctMe(env, req, did){
   const who = await whoIs(env, req, did);
-  if (!who.uid) return { ok:true, available: authOn(env), google: googleOn(env), signedIn:false };
+  if (!who.uid) return { ok:true, available: authOn(env), google: googleOn(env),
+                         mail: mailOn(env), signedIn:false };
   const r = await ledger(env).fetch(new Request("https://l/state?uid=" + encodeURIComponent(who.uid)));
   const st = await r.json();
-  return { ok:true, available:true, google: googleOn(env), signedIn:true, uid: who.uid,
+  return { ok:true, available:true, google: googleOn(env), mail: mailOn(env),
+           signedIn:true, uid: who.uid,
            email: st.email || "", subscribed: !!st.subscribed, remaining: st.remaining };
 }
 
@@ -1214,6 +1289,96 @@ async function googleCallback(env, url){
     return Response.redirect(back + "#in=" +
       encodeURIComponent(await authSign(env, out.uid, out.gen)), 302);
   }catch(e){ return bad("something went wrong signing you in"); }
+}
+
+/* =========================================================
+   MAGIC LINK
+   =========================================================
+   The third door, and the only one that needs nothing from Google. You
+   type an address, you get a link, you tap it, you are in.
+
+   Two things it has to survive, and both are about the inbox rather
+   than the cryptography:
+
+   A link is single use. A signed token that keeps working for fifteen
+   minutes is fifteen minutes in which anyone holding a forwarded email
+   is you. The nonce is burned on first use.
+
+   And corporate mail scanners click links before the human does —
+   Outlook's Safe Links is the famous one. That burns a single-use token
+   and the person is told their brand new link has already been used,
+   which is maddening and looks like a bug. So a used nonce says exactly
+   that, and offers another, instead of failing generically.
+
+   NOTIFY_FROM must be an address on a domain verified with the mail
+   provider. Sending from resend.dev works for the admin notification,
+   because that only ever goes to one inbox that expects it. A sign-in
+   link from a shared testing domain goes to spam, and a sign-in link in
+   spam is a broken product.
+   ========================================================= */
+
+const LINK_MIN  = 15;        // a link is good for a quarter of an hour
+const LINK_MAX  = 5;         // per address per hour, and per IP per hour
+
+function mailOn(env){ return !!(env.RESEND_API_KEY && env.NOTIFY_FROM && authOn(env)); }
+
+/* Deliberately loose. Bouncing a real address because it has a plus in
+   it is worse than accepting one typo. */
+function okEmail(e){ return /^[^@\s]+@[^@\s.]+\.[^@\s]+$/.test(e); }
+
+async function linkStart(env, req, b){
+  if (!mailOn(env)) return { ok:false, error:"email sign-in is not set up yet" };
+  const email = String(b.email || "").trim().toLowerCase().slice(0, 254);
+  if (!okEmail(email)) return { ok:false, error:"that does not look like an email" };
+  const back = safeBack(b.back || "");
+  const ip = req.headers.get("CF-Connecting-IP") || "";
+
+  const gate = await (await ledger(env).fetch(new Request("https://l/rate", {
+    method:"POST", body: JSON.stringify({ keys:["m:"+email, "i:"+ip], max: LINK_MAX })
+  }))).json();
+  if (!gate.ok) return { ok:false, error:"too many links requested — try again in an hour" };
+
+  const nonce = b64url(randomBytes(16));
+  const body  = "l1." + b64urlStr(JSON.stringify({
+    e: email, b: back, n: nonce, x: Date.now() + LINK_MIN * 60000 }));
+  const token = body + "." + await authMac(env, body);
+  const url   = new URL(req.url).origin + "/account/link/finish?t=" + encodeURIComponent(token);
+
+  const sent = await sendMail(env, email, "Your STATIONS sign-in link",
+    "Tap this to sign in:\n\n" + url +
+    "\n\nIt works once and expires in " + LINK_MIN + " minutes.\n\n" +
+    "If you did not ask for this, nothing has happened and you can ignore it.\n");
+  /* The same answer either way. Whether an address is deliverable is not
+     something a stranger should be able to probe for. */
+  if (!sent) return { ok:false, error:"could not send that just now — try again shortly" };
+  return { ok:true };
+}
+
+async function linkFinish(env, url){
+  const raw = url.searchParams.get("t") || "";
+  const p = raw.split(".");
+  const fail = (back, m) => Response.redirect(back + "#in_err=" + encodeURIComponent(m), 302);
+  if (p.length !== 3 || p[0] !== "l1") return fail(ALLOWED[0] + "/", "that link is not valid");
+  if (!sameString(await authMac(env, p[0] + "." + p[1]), p[2]))
+    return fail(ALLOWED[0] + "/", "that link is not valid");
+
+  let o; try{ o = JSON.parse(unb64url(p[1])); }catch(e){ return fail(ALLOWED[0] + "/", "that link is not valid"); }
+  const back = safeBack(o.b || "");
+  if (!o.x || Number(o.x) < Date.now())
+    return fail(back, "that link expired — ask for another");
+
+  /* Burned here, not at the end: if anything after this fails they must
+     ask for a new link rather than get a token that still works. */
+  const once = await (await ledger(env).fetch(new Request("https://l/acct/once", {
+    method:"POST", body: JSON.stringify({ n: o.n, ttl: LINK_MIN * 60000 }) }))).json();
+  if (!once.ok)
+    return fail(back, "that link was already used — ask for another and it will work");
+
+  const out = await (await ledger(env).fetch(new Request("https://l/acct/byemail", {
+    method:"POST", body: JSON.stringify({ email: o.e, did: "" }) }))).json();
+  if (!out.ok) return fail(back, "could not finish signing you in");
+  return Response.redirect(back + "#in=" +
+    encodeURIComponent(await authSign(env, out.uid, out.gen)), 302);
 }
 
 function stripeOn(env){ return !!(env.STRIPE_SECRET_KEY && env.STRIPE_PRICE_ID); }

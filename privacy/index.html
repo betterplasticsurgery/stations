@@ -75,6 +75,10 @@
    it, only a hash — and the identifier is not derived from anything about you or your phone.</p>
 <p>Your browser keeps a signed token so it stays signed in. Asking for a new recovery code invalidates
    every token for that account, which is what to do if you lose a device.</p>
+<p>If you ask us to <strong>email you a sign-in link</strong>, we store your address as the account's
+   address and send the link through Resend, our mail provider, who handles the delivery. We keep a
+   short-lived record of the request so a link cannot be used twice and so nobody can use the form to
+   flood someone's inbox.</p>
 <p>If you <strong>sign in with Google</strong>, Google tells us two things: your email address, and a
    permanent identifier for your Google account. That is the whole of it — we ask for no other access,
    and we cannot see your Gmail, your contacts or your calendar. It works the other way too: Google

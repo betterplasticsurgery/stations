@@ -184,5 +184,50 @@ console.log("\nthe Google gate");
      G2.googleOn({ AUTH_SECRET:"x", GOOGLE_CLIENT_ID:"a", GOOGLE_CLIENT_SECRET:"b" }) === true);
 }
 
+console.log("\nsign-in links");
+{
+  /* The link token is the same primitive as the session token with a
+     different payload, so what is worth testing is the payload: that a
+     tampered address does not survive, and that an expiry is honoured.
+     Rebuild the exact string the Worker builds and check it end to end. */
+  const mk = async (email, back, nonce, ms) => {
+    const body = "l1." + G2.b64urlStr(JSON.stringify({ e:email, b:back, n:nonce, x: Date.now() + ms }));
+    return body + "." + await A.authMac(env, body);
+  };
+  const read = async raw => {
+    const p = raw.split(".");
+    if (p.length !== 3 || p[0] !== "l1") return null;
+    if (!A.sameString(await A.authMac(env, p[0] + "." + p[1]), p[2])) return null;
+    let o; try{ o = JSON.parse(G2.unb64url(p[1])); }catch(e){ return null; }
+    return (o.x && Number(o.x) >= Date.now()) ? o : null;
+  };
+
+  const good = await mk("andre@example.com", "https://stations.fit/", "n1", 900000);
+  ok("round-trips", (await read(good))?.e === "andre@example.com");
+
+  const parts = good.split(".");
+  const swapped = "l1." + G2.b64urlStr(JSON.stringify(
+    { e:"someone@else.com", b:"https://stations.fit/", n:"n1", x: Date.now() + 900000 })) + "." + parts[2];
+  ok("a swapped address is refused", await read(swapped) === null);
+  ok("a tampered signature is refused",
+     await read(parts[0] + "." + parts[1] + "." + parts[2].slice(0,-1) + "Z") === null);
+  ok("an expired link is refused", await read(await mk("a@b.co","https://stations.fit/","n2",-1000)) === null);
+
+  /* The address is signed, so nobody can turn their own link into a link
+     for somebody else's account. That is the whole security property. */
+  const mine = await read(await mk("mine@example.com","https://stations.fit/","n3",900000));
+  ok("the address in the link is the one that was signed", mine.e === "mine@example.com");
+}
+
+console.log("\nwhat counts as an email");
+{
+  const okE = new Function("return " + src.slice(src.indexOf("function okEmail"),
+    src.indexOf("async function linkStart")))();
+  for (const good of ["a@b.co", "andre.rafizadeh@gmail.com", "a+tag@b.co", "a_b@c-d.io"])
+    ok("accepts " + good, okE(good) === true);
+  for (const bad of ["", "a", "a@b", "a b@c.co", "@b.co", "a@", "a@@b.co"])
+    ok("rejects " + JSON.stringify(bad), okE(bad) === false);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

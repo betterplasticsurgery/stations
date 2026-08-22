@@ -695,6 +695,9 @@ body.duo .figwrap{height:min(22vh,178px)}
   border:1px solid var(--line);border-radius:12px;padding:12px 13px;font-size:16px;
   font-family:var(--mono);letter-spacing:1.5px;text-transform:uppercase}
 .acrow input.in::placeholder{color:var(--dim2);letter-spacing:1.5px}
+/* An address is not a code — normal case, normal spacing. */
+.acrow input.in.mail{font-family:var(--sans);letter-spacing:0;text-transform:none}
+.acrow input.in.mail::placeholder{letter-spacing:0}
 /* Google's button: their mark, on a surface that reads as a button here
    rather than a foreign object pasted into the page. */
 .btn.gbtn{display:inline-flex;align-items:center;justify-content:center;gap:10px;
@@ -5739,7 +5742,7 @@ function repBind(){
    else works exactly as it does today.
    ========================================================= */
 const TOKKEY = "stations.tok";
-const AC = { tok:"", uid:"", on:false, google:false, email:"", code:"", checked:false, note:"" };
+const AC = { tok:"", uid:"", on:false, google:false, mail:false, email:"", code:"", checked:false, note:"" };
 
 /* Google's own mark, inline. Their branding guidelines are specific
    that the button carries the real logo rather than an approximation. */
@@ -5782,7 +5785,7 @@ async function acMe(){
        questions. Answering the first with the second told every new
        visitor the feature did not exist. */
     AC.on = !!j.available || !!j.signedIn;
-    AC.google = !!j.google;
+    AC.google = !!j.google; AC.mail = !!j.mail;
     if (j.signedIn){ AC.uid = j.uid; AC.email = j.email || "";
                      if (j.subscribed) DUO.subscribed = true; }
     else if (AC.tok){
@@ -5827,6 +5830,11 @@ function acGoogle(){
             "&back=" + encodeURIComponent(location.origin + location.pathname) +
             (AC.tok ? "&tok=" + encodeURIComponent(AC.tok) : "");
   location.href = u;
+}
+
+async function acLink(email){
+  return acPost("/account/link/start", {
+    email, did: duoDid(), back: location.origin + location.pathname });
 }
 
 async function acCreate(){
@@ -5939,6 +5947,13 @@ function acRender(){
           'We get your email address and nothing else.</p>' +
         '<p class="msub" style="margin-top:22px">Or, without a Google account</p>'
       : '') +
+    (AC.mail
+      ? '<div class="acrow"><input id="acmail" class="in mail" type="email" inputmode="email" ' +
+          'autocomplete="email" placeholder="you@example.com">' +
+        '<button class="btn" id="acsend">Email me a link</button></div>' +
+        '<p class="hint">We send a link that signs you in when you tap it. It works once ' +
+          'and expires in fifteen minutes.</p>'
+      : '') +
     '<div class="acrow"><button class="btn' + (AC.google ? '' : ' primary') + '" id="acmake">Give me a code</button></div>' +
     '<p class="hint">A twelve-character code, shown once, that you keep somewhere safe.</p>' +
     '<p class="msub" style="margin-top:20px">Already have one?</p>' +
@@ -5949,6 +5964,25 @@ function acRender(){
   if (sum) sum.textContent = "Off";
 
   if ($("#acgoog")) $("#acgoog").onclick = () => acGoogle();
+  if ($("#acsend")) $("#acsend").onclick = async (e) => {
+    const v = ($("#acmail").value || "").trim();
+    if (!v) { $("#acmail").focus(); return; }
+    e.target.disabled = true; e.target.textContent = "Sending…";
+    const j = await acLink(v);
+    if (j.ok){
+      /* Nothing to press now, and saying so beats a button that looks
+         like it did not work. */
+      $("#acbody").innerHTML =
+        '<p class="hint" style="color:var(--txt)">Check <b>' + esc(v) + '</b>. ' +
+        'The link works once and expires in fifteen minutes.</p>' +
+        '<p class="hint">Nothing arrived? Look in spam, then ask again in a minute.</p>' +
+        '<div class="acrow"><button class="btn" id="acback">Back</button></div>';
+      $("#acback").onclick = () => acRender();
+    } else {
+      e.target.disabled = false; e.target.textContent = "Email me a link";
+      $("#acerr").textContent = j.error || "That did not work.";
+    }
+  };
   $("#acmake").onclick = async (e) => {
     e.target.disabled = true; e.target.textContent = "Working…";
     const j = await acCreate();
