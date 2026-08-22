@@ -37,6 +37,9 @@
      POST /account/redeem → hand that code to a second device.
      GET  /account/me     → who the bearer token says you are.
      POST /account/rotate → a fresh code, killing the old one.
+     GET  /account/google/start    → off to Google.
+     GET  /account/google/callback → back from Google, with a session.
+
    Not here yet: magic-link sign-in. The accts table carries an email
    column so it can land without a migration, but there are no /link
    routes and nothing sends mail. The recovery code is the only way an
@@ -178,6 +181,9 @@ export default {
         headers: { ...cors, "Content-Type":"application/json", "Cache-Control":"no-store" }});
       let b = {}; if (req.method === "POST") { try{ b = await req.json(); }catch(e){} }
 
+      /* Redirects, not JSON — these two are navigated to, not fetched. */
+      if (url.pathname === "/account/google/start")    return googleStart(env, req, url);
+      if (url.pathname === "/account/google/callback") return googleCallback(env, url);
       if (url.pathname === "/account/me")
         return j(await acctMe(env, req, (url.searchParams.get("did") || "").slice(0,64)), 200);
       if (url.pathname === "/account/new" && req.method === "POST")
@@ -382,10 +388,14 @@ export class Ledger extends DurableObject {
        until a magic link is used — the column exists now so that landing
        does not need a migration on a live table. */
     this.sql.exec(`CREATE TABLE IF NOT EXISTS accts(
-      uid TEXT PRIMARY KEY, code TEXT, email TEXT,
+      uid TEXT PRIMARY KEY, code TEXT, email TEXT, gsub TEXT,
       gen INTEGER NOT NULL DEFAULT 1,
       created INTEGER NOT NULL, seen INTEGER NOT NULL)`);
+    try{ this.sql.exec(`ALTER TABLE accts ADD COLUMN gsub TEXT`); }catch(e){}
     this.sql.exec(`CREATE UNIQUE INDEX IF NOT EXISTS accts_code ON accts(code)`);
+    /* Google's sub, not the email address: Google is explicit that sub is
+       unique and never reused, and that an address can change hands. */
+    this.sql.exec(`CREATE UNIQUE INDEX IF NOT EXISTS accts_gsub ON accts(gsub)`);
     /* trials and subs were keyed by device before accounts existed. The
        column is added rather than the tables rebuilt, and every existing
        row keeps working with a null uid until a device claims it. */
@@ -454,7 +464,12 @@ export class Ledger extends DurableObject {
       case "/state": {
         const used = this.row(uid, did);
         const sub = this.subbed(uid, did);
-        return json({ used, limit:FREE_CALLS,
+        let email = "";
+        if (uid){
+          const r = [...this.sql.exec("SELECT email FROM accts WHERE uid = ?", uid)];
+          if (r.length) email = r[0].email || "";
+        }
+        return json({ used, limit:FREE_CALLS, email,
                       remaining: sub ? 9999 : Math.max(0, FREE_CALLS - used),
                       subscribed: sub });
       }
@@ -538,6 +553,54 @@ export class Ledger extends DurableObject {
         this.sql.exec("UPDATE accts SET seen = ? WHERE uid = ?", now, who);
         return json({ ok:true, uid: who, gen: r[0].gen,
                       subscribed: this.subbed(who, String(b.did || "")) });
+      }
+
+      /* Find, attach, or create — in that order, and the order is the
+         whole of the policy:
+
+           1. This Google identity already has an account → sign in to it.
+              Their Google account is the more durable thing; a recovery
+              code they made earlier does not outrank it.
+           2. They are signed in already → attach Google to that account,
+              so the code path and the Google path converge instead of
+              leaving somebody with two accounts and one subscription.
+           3. Neither → a new account, with the device's history claimed. */
+      case "/acct/google": {
+        let b = {}; try{ b = await req.json(); }catch(e){}
+        const gsub = String(b.gsub || ""), email = String(b.email || "");
+        const dev  = String(b.did || "");
+        if (!gsub) return json({ ok:false });
+
+        const found = [...this.sql.exec("SELECT uid, gen FROM accts WHERE gsub = ?", gsub)];
+        if (found.length){
+          const who = found[0].uid;
+          if (email) this.sql.exec("UPDATE accts SET email = ? WHERE uid = ?", email, who);
+          this.sql.exec("UPDATE accts SET seen = ? WHERE uid = ?", now, who);
+          this.claim(who, dev);
+          return json({ ok:true, uid: who, gen: found[0].gen });
+        }
+
+        const mine = String(b.uid || "");
+        if (mine){
+          const has = [...this.sql.exec("SELECT gen FROM accts WHERE uid = ?", mine)];
+          if (has.length){
+            try{
+              this.sql.exec("UPDATE accts SET gsub = ?, email = COALESCE(NULLIF(?, ''), email), seen = ? WHERE uid = ?",
+                gsub, email, now, mine);
+            }catch(e){ return json({ ok:false }); }
+            this.claim(mine, dev);
+            return json({ ok:true, uid: mine, gen: has[0].gen });
+          }
+        }
+
+        const uid = "g" + gsub.slice(-18);
+        try{
+          this.sql.exec(
+            `INSERT INTO accts(uid, gsub, email, gen, created, seen) VALUES(?, ?, ?, 1, ?, ?)`,
+            uid, gsub, email || null, now, now);
+        }catch(e){ return json({ ok:false }); }
+        this.claim(uid, dev);
+        return json({ ok:true, uid, gen: 1 });
       }
 
       case "/acct/rotate": {
@@ -1005,11 +1068,152 @@ async function acctRotate(env, req, b){
    evidence that the feature is off. */
 async function acctMe(env, req, did){
   const who = await whoIs(env, req, did);
-  if (!who.uid) return { ok:true, available: authOn(env), signedIn:false };
+  if (!who.uid) return { ok:true, available: authOn(env), google: googleOn(env), signedIn:false };
   const r = await ledger(env).fetch(new Request("https://l/state?uid=" + encodeURIComponent(who.uid)));
   const st = await r.json();
-  return { ok:true, available:true, signedIn:true, uid: who.uid,
-           subscribed: !!st.subscribed, remaining: st.remaining };
+  return { ok:true, available:true, google: googleOn(env), signedIn:true, uid: who.uid,
+           email: st.email || "", subscribed: !!st.subscribed, remaining: st.remaining };
+}
+
+/* =========================================================
+   SIGN IN WITH GOOGLE
+   =========================================================
+   A real account with no mail provider behind it. Google hands over a
+   verified email address and a permanent user id, which is the whole of
+   what an account needs, and it does it in one tap rather than in a
+   message that has to survive a spam filter — which matters more than
+   it sounds when you remember where someone is standing when they sign
+   in to a workout app.
+
+   The identity key is Google's `sub`, never the email address. Google
+   is explicit that sub is unique and never reused, and that an email
+   can change hands. Keying on email would mean an address changing
+   owner changes who owns the subscription.
+
+   The signature on the ID token is not checked here, and that is
+   deliberate rather than lazy: the token is fetched over TLS straight
+   from Google's token endpoint using the client secret, which is the
+   one case Google documents as not needing it. The claims that carry
+   the meaning — issuer, audience, expiry — are checked, because those
+   are what a stolen-but-valid token from someone else's project would
+   fail.
+   ========================================================= */
+
+const G_AUTH  = "https://accounts.google.com/o/oauth2/v2/auth";
+const G_TOKEN = "https://oauth2.googleapis.com/token";
+
+function googleOn(env){ return !!(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET && authOn(env)); }
+
+function b64urlStr(str){ return b64url(new TextEncoder().encode(str)); }
+function unb64url(s){
+  const pad = s.replace(/-/g,"+").replace(/_/g,"/");
+  return atob(pad + "=".repeat((4 - pad.length % 4) % 4));
+}
+
+/* Where we are allowed to send someone afterwards. An unchecked return
+   address is an open redirect, and an open redirect on the domain that
+   also holds the session is how a token gets handed to a stranger. */
+function safeBack(raw){
+  try{
+    const u = new URL(raw);
+    const ok = ALLOWED.includes(u.origin) ||
+               /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(u.origin);
+    return ok ? u.origin + u.pathname : ALLOWED[0] + "/";
+  }catch(e){ return ALLOWED[0] + "/"; }
+}
+
+async function stateSign(env, o){
+  const body = b64urlStr(JSON.stringify(o));
+  return body + "." + await authMac(env, body);
+}
+async function stateRead(env, raw){
+  const p = String(raw || "").split(".");
+  if (p.length !== 2) return null;
+  if (!sameString(await authMac(env, p[0]), p[1])) return null;
+  let o; try{ o = JSON.parse(unb64url(p[0])); }catch(e){ return null; }
+  /* Ten minutes is longer than any real sign-in and short enough that a
+     state parameter found in a log is useless. */
+  if (!o || Math.abs(Date.now() - Number(o.t || 0)) > 600000) return null;
+  return o;
+}
+
+async function googleStart(env, req, url){
+  const back = safeBack(url.searchParams.get("back") || "");
+  if (!googleOn(env)) return Response.redirect(back + "#in_err=" +
+    encodeURIComponent("Google sign-in is not set up yet"), 302);
+  const h = req.headers.get("Authorization") || "";
+  const state = await stateSign(env, {
+    did: (url.searchParams.get("did") || "").slice(0, 64),
+    back, t: Date.now(),
+    /* If they are already on an account, Google gets attached to it
+       rather than starting a second one. */
+    tok: h.startsWith("Bearer ") ? h.slice(7) : (url.searchParams.get("tok") || "")
+  });
+  const q = new URLSearchParams({
+    client_id: env.GOOGLE_CLIENT_ID,
+    redirect_uri: url.origin + "/account/google/callback",
+    response_type: "code",
+    scope: "openid email profile",
+    state,
+    prompt: "select_account"
+  });
+  return Response.redirect(G_AUTH + "?" + q.toString(), 302);
+}
+
+async function googleCallback(env, url){
+  const st = await stateRead(env, url.searchParams.get("state"));
+  const back = st ? st.back : (ALLOWED[0] + "/");
+  const bad = m => Response.redirect(back + "#in_err=" + encodeURIComponent(m), 302);
+  if (!st) return bad("that sign-in link expired — try again");
+  if (url.searchParams.get("error")) return bad("sign-in was cancelled");
+  const code = url.searchParams.get("code");
+  if (!code) return bad("Google did not send a code back");
+
+  try{
+    const r = await fetch(G_TOKEN, {
+      method:"POST", headers:{ "Content-Type":"application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        code, client_id: env.GOOGLE_CLIENT_ID, client_secret: env.GOOGLE_CLIENT_SECRET,
+        redirect_uri: url.origin + "/account/google/callback",
+        grant_type: "authorization_code"
+      })
+    });
+    const tk = await r.json();
+    if (!tk.id_token) return bad("Google would not complete the sign-in");
+
+    const claims = JSON.parse(unb64url(tk.id_token.split(".")[1] || ""));
+    /* The three that matter. aud is the one that stops a valid token
+       minted for somebody else's project being replayed at ours. */
+    if (claims.aud !== env.GOOGLE_CLIENT_ID) return bad("that sign-in was not for this app");
+    if (!["https://accounts.google.com","accounts.google.com"].includes(claims.iss))
+      return bad("that sign-in did not come from Google");
+    if (!claims.exp || Number(claims.exp) * 1000 < Date.now()) return bad("that sign-in expired");
+    if (!claims.sub) return bad("Google did not say who you are");
+    /* An unverified address is not proof of anything, and it is the
+       route by which someone claims an address that is not theirs. */
+    if (claims.email && claims.email_verified === false)
+      return bad("that Google account's email is not verified");
+
+    /* Attach to the account they are already on, if any. */
+    let uid = "";
+    if (st.tok){
+      const t = await authRead(env, st.tok);
+      if (t){
+        const g = await (await ledger(env).fetch(
+          new Request("https://l/acct/gen?uid=" + encodeURIComponent(t.uid)))).json();
+        if (g.ok && g.gen === t.gen) uid = t.uid;
+      }
+    }
+
+    const out = await (await ledger(env).fetch(new Request("https://l/acct/google", {
+      method:"POST", body: JSON.stringify({
+        gsub: String(claims.sub), email: String(claims.email || "").slice(0,254),
+        did: st.did || "", uid
+      })}))).json();
+    if (!out.ok) return bad("could not finish signing you in");
+    return Response.redirect(back + "#in=" +
+      encodeURIComponent(await authSign(env, out.uid, out.gen)), 302);
+  }catch(e){ return bad("something went wrong signing you in"); }
 }
 
 function stripeOn(env){ return !!(env.STRIPE_SECRET_KEY && env.STRIPE_PRICE_ID); }

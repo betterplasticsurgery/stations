@@ -695,6 +695,13 @@ body.duo .figwrap{height:min(22vh,178px)}
   border:1px solid var(--line);border-radius:12px;padding:12px 13px;font-size:16px;
   font-family:var(--mono);letter-spacing:1.5px;text-transform:uppercase}
 .acrow input.in::placeholder{color:var(--dim2);letter-spacing:1.5px}
+/* Google's button: their mark, on a surface that reads as a button here
+   rather than a foreign object pasted into the page. */
+.btn.gbtn{display:inline-flex;align-items:center;justify-content:center;gap:10px;
+  background:#fff;color:#1f1f1f;font-weight:700;border:none}
+.btn.gbtn.wide{width:100%}
+.btn.gbtn:hover{background:#f1f3f4}
+.gmark{width:18px;height:18px;flex:0 0 auto;display:block}
 
 /* ---- rep counting ----
    The count sits under the exercise name because that is what it is
@@ -5732,7 +5739,15 @@ function repBind(){
    else works exactly as it does today.
    ========================================================= */
 const TOKKEY = "stations.tok";
-const AC = { tok:"", uid:"", on:false, code:"", checked:false };
+const AC = { tok:"", uid:"", on:false, google:false, email:"", code:"", checked:false, note:"" };
+
+/* Google's own mark, inline. Their branding guidelines are specific
+   that the button carries the real logo rather than an approximation. */
+const G_MARK = '<svg class="gmark" viewBox="0 0 18 18" aria-hidden="true">' +
+  '<path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.92c1.7-1.57 2.68-3.88 2.68-6.62z"/>' +
+  '<path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.92-2.26c-.8.54-1.84.86-3.04.86-2.34 0-4.32-1.58-5.03-3.7H.96v2.33A9 9 0 0 0 9 18z"/>' +
+  '<path fill="#FBBC05" d="M3.97 10.72a5.4 5.4 0 0 1 0-3.44V4.95H.96a9 9 0 0 0 0 8.1l3.01-2.33z"/>' +
+  '<path fill="#EA4335" d="M9 3.58c1.32 0 2.5.45 3.44 1.35l2.58-2.58C13.46.9 11.43 0 9 0A9 9 0 0 0 .96 4.95l3.01 2.33C4.68 5.16 6.66 3.58 9 3.58z"/></svg>';
 
 function acLoad(){ try{ AC.tok = localStorage.getItem(TOKKEY) || ""; }catch(e){} }
 function acSave(t){
@@ -5767,7 +5782,9 @@ async function acMe(){
        questions. Answering the first with the second told every new
        visitor the feature did not exist. */
     AC.on = !!j.available || !!j.signedIn;
-    if (j.signedIn){ AC.uid = j.uid; if (j.subscribed) DUO.subscribed = true; }
+    AC.google = !!j.google;
+    if (j.signedIn){ AC.uid = j.uid; AC.email = j.email || "";
+                     if (j.subscribed) DUO.subscribed = true; }
     else if (AC.tok){
       /* The token no longer verifies — expired, or the code was rotated
          from another device, which is what "I lost my phone" does. */
@@ -5775,6 +5792,41 @@ async function acMe(){
     }
     return j;
   }catch(e){ return null; }
+}
+
+/* Google sends them back to the site with a token in the hash, the same
+   shape the return from Stripe uses. Read it, keep it, and scrub the
+   address bar — a session token sitting in a URL ends up in history, in
+   a screenshot, and in whatever they paste to a friend. */
+async function acReturn(){
+  const h = String(location.hash || "");
+  const err = h.match(/[#&]in_err=([^&]+)/);
+  const got = h.match(/[#&]in=([^&]+)/);
+  if (!err && !got) return false;
+  try{ history.replaceState(null, "", location.pathname + location.search); }catch(e){}
+  if (err){ AC.note = decodeURIComponent(err[1]); acRender(); return true; }
+  acSave(decodeURIComponent(got[1]));
+  const me = await acMe();
+  AC.note = (me && me.signedIn)
+    ? "Signed in" + (me.email ? " as " + me.email : "") + "."
+    : "That sign-in did not take. Try again.";
+  if (me && me.subscribed) DUO.subscribed = true;
+  acRender();
+  /* Land them on the section that just changed rather than on the home
+     screen wondering whether it worked. */
+  try{
+    show("setup");
+    const sec = $("#secAccount");
+    if (sec){ sec.open = true; sec.scrollIntoView({ block:"center" }); }
+  }catch(e){}
+  return true;
+}
+
+function acGoogle(){
+  const u = DUO_RELAY + "/account/google/start?did=" + encodeURIComponent(duoDid()) +
+            "&back=" + encodeURIComponent(location.origin + location.pathname) +
+            (AC.tok ? "&tok=" + encodeURIComponent(AC.tok) : "");
+  location.href = u;
 }
 
 async function acCreate(){
@@ -5844,12 +5896,20 @@ function acRender(){
 
   if (AC.uid){
     box.innerHTML =
-      '<p class="hint">This browser is signed in. Your free session and your subscription ' +
-        'follow the account, not this phone.</p>' +
+      (AC.note ? '<p class="hint" style="color:var(--txt)">' + esc(AC.note) + '</p>' : '') +
+      '<p class="hint">This browser is signed in' + (AC.email ? ' as <b>' + esc(AC.email) + '</b>' : '') +
+        '. Your free session and your subscription follow the account, not this phone.</p>' +
+      (AC.google && !AC.email
+        ? '<div class="acrow"><button class="btn gbtn" id="acgoog">' + G_MARK +
+          'Add Google sign-in</button></div>' +
+          '<p class="hint">Attaches this account to your Google account, so you can get back ' +
+            'in with a tap instead of a code.</p>'
+        : '') +
       '<div class="acrow"><button class="btn" id="acnew">New recovery code</button></div>' +
       '<p class="hint">A new code cancels the old one and signs out every other device — ' +
         'which is what you want if you have lost one.</p>';
     if (sum) sum.textContent = "Signed in";
+    if ($("#acgoog")) $("#acgoog").onclick = () => acGoogle();
     $("#acnew").onclick = async (e) => {
       e.target.disabled = true; e.target.textContent = "Working…";
       const j = await acRotate();
@@ -5868,10 +5928,19 @@ function acRender(){
   }
 
   box.innerHTML =
+    (AC.note ? '<p class="hint" style="color:var(--txt)">' + esc(AC.note) + '</p>' : '') +
     '<p class="hint">Right now everything — your free session, and a subscription if you buy one — ' +
       'lives in this browser. Clear its data or pick up a different phone and it does not follow you. ' +
-      'An account fixes that. There is no password and no email; you get one code.</p>' +
-    '<div class="acrow"><button class="btn primary" id="acmake">Give me a code</button></div>' +
+      'An account fixes that.</p>' +
+    (AC.google
+      ? '<div class="acrow"><button class="btn gbtn wide" id="acgoog">' + G_MARK +
+        'Continue with Google</button></div>' +
+        '<p class="hint">One tap, no password, and it works on any phone you sign in on. ' +
+          'We get your email address and nothing else.</p>' +
+        '<p class="msub" style="margin-top:22px">Or, without a Google account</p>'
+      : '') +
+    '<div class="acrow"><button class="btn' + (AC.google ? '' : ' primary') + '" id="acmake">Give me a code</button></div>' +
+    '<p class="hint">A twelve-character code, shown once, that you keep somewhere safe.</p>' +
     '<p class="msub" style="margin-top:20px">Already have one?</p>' +
     '<div class="acrow"><input id="accode" class="in" placeholder="ABCD-EFGH-JKMN" ' +
       'autocomplete="one-time-code" autocapitalize="characters" spellcheck="false">' +
@@ -5879,6 +5948,7 @@ function acRender(){
     '<p class="hint" id="acerr"></p>';
   if (sum) sum.textContent = "Off";
 
+  if ($("#acgoog")) $("#acgoog").onclick = () => acGoogle();
   $("#acmake").onclick = async (e) => {
     e.target.disabled = true; e.target.textContent = "Working…";
     const j = await acCreate();
@@ -5916,7 +5986,9 @@ function acBind(){
      how it knows whether it still has a subscription. A browser holding
      nothing asks nothing, and finds out whether accounts even exist at
      the moment someone opens the section. */
-  if (AC.tok) acMe().then(() => acRender());
+  /* A return from Google decides the screen, so it runs before the
+     quiet background check. */
+  acReturn().then(handled => { if (!handled && AC.tok) acMe().then(() => acRender()); });
   const sec = $("#secAccount");
   if (sec) sec.addEventListener("toggle", () => {
     if (sec.open && !AC.checked) acMe().then(() => acRender());

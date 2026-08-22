@@ -75,6 +75,78 @@ With `AUTH_SECRET` set, in your own browser:
    private window loses access on its next check — that is the generation
    bump working.
 
+## Sign in with Google
+
+The fastest real account, and the only one that needs no mail provider.
+Two secrets and one redirect URI.
+
+### 1. Make the OAuth client
+
+[console.cloud.google.com](https://console.cloud.google.com) → create a
+project (call it STATIONS) → **APIs & Services → OAuth consent screen**.
+
+- User type: **External**, then **Publish app**. Left in Testing it only
+  works for accounts you list by hand, and it shows an unverified-app
+  warning.
+- App name: STATIONS. Support email: yours.
+- **Homepage** `https://stations.fit`, **Privacy policy**
+  `https://stations.fit/privacy/`, **Terms of service**
+  `https://stations.fit/terms/`. Google requires these and now you have
+  them.
+- Scopes: `openid`, `email`, `profile`. **Add nothing else.** These are
+  non-sensitive, which is what keeps you out of the verification review
+  and away from the hundred-user cap. The moment you add a scope that
+  touches someone's Gmail or Calendar, that changes.
+
+Then **Credentials → Create credentials → OAuth client ID → Web
+application**:
+
+| Field | Value |
+|---|---|
+| Authorised JavaScript origins | `https://stations.fit` |
+| Authorised redirect URIs | `https://stations-signal.andre-rafizadeh.workers.dev/account/google/callback` |
+
+The redirect URI must match **exactly** — scheme, host, path, no
+trailing slash. A mismatch is the single commonest failure and Google
+says so plainly in the error.
+
+### 2. The two secrets
+
+Same Cloudflare page as `AUTH_SECRET`, both type **Secret**:
+
+| Name | Where it comes from |
+|---|---|
+| `GOOGLE_CLIENT_ID` | the client id, ends `.apps.googleusercontent.com` |
+| `GOOGLE_CLIENT_SECRET` | the client secret next to it |
+
+Without both, `/account/google/start` redirects straight back saying
+Google sign-in is not set up, and the button does not appear at all.
+
+### What signing in actually does
+
+1. The button sends them to Google with a signed `state` carrying their
+   device id and where to return. The return address is checked against
+   the allow-list — an open redirect here would hand a session token to
+   whoever asked for it.
+2. Google sends them back with a code. The relay swaps it for an ID
+   token over TLS using the client secret.
+3. The claims that matter are checked: `aud` is this client, `iss` is
+   Google, `exp` is in the future, the email is verified.
+4. The account is found by Google's `sub` — never by email, because an
+   address can change hands and a `sub` never does.
+5. They come back to the site with a session token in the hash, which
+   the app stores and scrubs out of the address bar.
+
+### Which account they land on
+
+In this order, and the order is the policy:
+
+1. **That Google identity already has an account** → sign in to it.
+2. **They are already signed in with a recovery code** → Google gets
+   attached to that account, so the two paths converge rather than
+   leaving somebody with two accounts and one subscription.
+3. **Neither** → a new account, and this device's history comes with it.
+
 ## What is not here yet
 
 Magic-link email sign-in. It is the same account, reached a second way,

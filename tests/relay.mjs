@@ -17,7 +17,8 @@ export function startRelay(){
   /* Accounts, stubbed with the same shape as the Worker's: a token that
      names an account, a code that moves it, and a generation that a
      rotation bumps so old tokens stop working. */
-  const accounts = { on:false, byUid:new Map(), byCode:new Map(), n:0 };
+  const accounts = { on:false, google:false, gfail:"", byUid:new Map(), byCode:new Map(),
+                     byGsub:new Map(), n:0 };
   const bearer = req => {
     const h = req.headers["authorization"] || "";
     if (!h.startsWith("Bearer ")) return null;
@@ -131,9 +132,39 @@ export function startRelay(){
     /* ---- accounts, stubbed ---- */
     if (u.pathname === "/account/me"){
       const a = bearer(req);
-      if (!a) return json(res, { ok:true, available: accounts.on, signedIn:false });
+      if (!a) return json(res, { ok:true, available: accounts.on, google: accounts.google, signedIn:false });
       const sub = subs.has(a.uid) || [...a.dids].some(d => subs.has(d));
-      return json(res, { ok:true, available:true, signedIn:true, uid:a.uid, subscribed:sub });
+      return json(res, { ok:true, available:true, google: accounts.google, signedIn:true,
+                         uid:a.uid, email:a.email || "", subscribed:sub });
+    }
+    /* Google's half of the round trip, collapsed: the real thing leaves
+       for accounts.google.com and comes back here. What the app has to
+       get right is what happens on the way back, so the stub goes
+       straight there. */
+    if (u.pathname === "/account/google/start"){
+      const back = u.searchParams.get("back") || "/";
+      if (!accounts.google || accounts.gfail){
+        res.writeHead(302, { Location: back + "#in_err=" +
+          encodeURIComponent(accounts.gfail || "Google sign-in is not set up yet") });
+        return res.end();
+      }
+      const gsub = "google-sub-1";
+      const tok = u.searchParams.get("tok") || "";
+      let a = accounts.byGsub.get(gsub);
+      if (!a){
+        const already = tok && accounts.byUid.get(tok.split(".")[0]);
+        if (already){ a = already; }                    // attach to the account they are on
+        else {
+          const uid = "g" + (++accounts.n);
+          a = { uid, gen:1, code:null, dids:new Set() };
+          accounts.byUid.set(uid, a);
+        }
+        a.email = "andre@example.com"; a.gsub = gsub;
+        accounts.byGsub.set(gsub, a);
+      }
+      const did = u.searchParams.get("did"); if (did) a.dids.add(did);
+      res.writeHead(302, { Location: back + "#in=" + encodeURIComponent(a.uid + "." + a.gen) });
+      return res.end();
     }
     if (u.pathname.startsWith("/account/") && req.method === "POST"){
       let body=""; req.on("data",c=>body+=c);
@@ -183,14 +214,16 @@ export function startRelay(){
     }
     if (u.pathname === "/__accounts"){
       accounts.on = u.searchParams.get("on") === "1";
-      accounts.byUid.clear(); accounts.byCode.clear(); accounts.n = 0;
-      return json(res, { ok:true, on:accounts.on });
+      accounts.google = u.searchParams.get("google") === "1";
+      accounts.gfail = u.searchParams.get("gfail") || "";
+      accounts.byUid.clear(); accounts.byCode.clear(); accounts.byGsub.clear(); accounts.n = 0;
+      return json(res, { ok:true, on:accounts.on, google:accounts.google });
     }
 
     if (u.pathname === "/__billing"){
       billing.on = u.searchParams.get("on") === "1";
       billing.calls.length = 0; billing.sessions.clear(); subs.clear();
-      accounts.byUid.clear(); accounts.byCode.clear(); accounts.n = 0;
+      accounts.byUid.clear(); accounts.byCode.clear(); accounts.byGsub.clear(); accounts.n = 0;
       return json(res, { ok:true, on:billing.on });
     }
     if (u.pathname === "/__billingcalls") return json(res, billing.calls);

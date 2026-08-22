@@ -964,6 +964,62 @@ await fetch(`${RELAY}/__billing?on=1`);
   await one.close(); await two.close(); await three.close(); await wiped.close();
 }
 
+/* ---- 23b. sign in with Google ----
+   The stub collapses the trip to accounts.google.com, because what the
+   app has to get right is the way back: keep the token, scrub it out of
+   the address bar, and land on the thing that changed. */
+console.log("\nsign in with Google");
+await fetch(`${RELAY}/__accounts?on=1&google=1`);
+{
+  const ctx = await browser.newContext();
+  const p = await newPage(ctx, { relay:true });
+  await p.goto(BASE);
+  const me = await p.evaluate(() => acMe());
+  ok("the app is told Google sign-in is available", me.google === true, JSON.stringify(me));
+
+  await p.evaluate(() => { const d = document.querySelector("#secAccount"); d.open = true; });
+  await p.waitForTimeout(200);
+  await p.evaluate(() => acRender());
+  ok("and offers the button", await p.$("#acgoog") !== null);
+
+  await Promise.all([p.waitForNavigation({ timeout:15000 }), p.evaluate(() => acGoogle())]);
+  await p.waitForFunction(() => AC.uid, null, { timeout:15000 });
+  const after = await p.evaluate(() => ({ uid: AC.uid, tok: !!AC.tok, email: AC.email,
+                                          hash: location.hash, note: AC.note }));
+  ok("coming back signs you in", !!after.uid && after.tok, JSON.stringify(after));
+  ok("it knows the address Google gave it", after.email === "andre@example.com", after.email);
+  /* A session token in the URL ends up in history, in a screenshot, and
+     in whatever gets pasted to a friend. */
+  ok("and the token is scrubbed from the address bar", after.hash === "", after.hash);
+  ok("it says so rather than leaving you guessing", /signed in/i.test(after.note || ""), after.note);
+
+  /* The same Google identity on a second browser is the same account. */
+  const ctx2 = await browser.newContext();
+  const q = await newPage(ctx2, { relay:true });
+  await q.goto(BASE);
+  await Promise.all([q.waitForNavigation({ timeout:15000 }), q.evaluate(() => acGoogle())]);
+  await q.waitForFunction(() => AC.uid, null, { timeout:15000 });
+  const uid2 = await q.evaluate(() => AC.uid);
+  ok("the same Google account is the same account on another phone", uid2 === after.uid,
+     uid2 + " vs " + after.uid);
+
+  await ctx.close(); await ctx2.close();
+}
+{
+  /* Google says no, or the config is missing. */
+  await fetch(`${RELAY}/__accounts?on=1&google=1&gfail=${encodeURIComponent("sign-in was cancelled")}`);
+  const ctx = await browser.newContext();
+  const p = await newPage(ctx, { relay:true });
+  await p.goto(BASE);
+  await Promise.all([p.waitForNavigation({ timeout:15000 }), p.evaluate(() => acGoogle())]);
+  await p.waitForFunction(() => AC.note, null, { timeout:15000 });
+  const s = await p.evaluate(() => ({ note: AC.note, tok: !!AC.tok, hash: location.hash }));
+  ok("a refused sign-in says what happened", /cancelled/i.test(s.note), s.note);
+  ok("keeps no token from it", s.tok === false);
+  ok("and cleans the error out of the address bar too", s.hash === "", s.hash);
+  await ctx.close();
+}
+
 /* ---- 24. accounts off ---- */
 console.log("\naccounts, before the secret is set");
 await fetch(`${RELAY}/__accounts?on=0`);

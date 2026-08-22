@@ -12,11 +12,28 @@ const src = fs.readFileSync(new URL("../worker/signal.js", import.meta.url), "ut
 const block = src.slice(src.indexOf("const TOKEN_DAYS"), src.indexOf("async function whoIs"));
 const A = new Function("crypto", "TextEncoder", "btoa",
   block + "\nreturn { CODE_ALPHA, CODE_LEN, TOKEN_DAYS, b64url, newUid, newCode, prettyCode," +
-          " tidyCode, validCode, sha256hex, authSign, authRead, sameString, authOn };")(
+          " tidyCode, validCode, sha256hex, authSign, authRead, sameString, authOn, authMac, b64url };")(
   globalThis.crypto, globalThis.TextEncoder, globalThis.btoa);
+
+/* The Google half needs ALLOWED and the HMAC helpers from above, so it
+   is pulled out as its own block with those injected. */
+const gblock = src.slice(src.indexOf("const G_AUTH"), src.indexOf("async function googleStart"));
+const G = new Function("crypto", "TextEncoder", "btoa", "atob", "ALLOWED", "b64url", "authMac", "sameString", "authOn",
+  gblock + "\nreturn { googleOn, b64urlStr, unb64url, safeBack, stateSign, stateRead };")(
+  globalThis.crypto, globalThis.TextEncoder, globalThis.btoa, globalThis.atob,
+  ["https://stations.fit","https://www.stations.fit","https://betterplasticsurgery.github.io"],
+  null, null, null, null);
 
 let pass = 0, fail = 0;
 const ok = (n,c,x="") => c ? (pass++, console.log("  ok   "+n)) : (fail++, console.log("  FAIL "+n+(x?"  — "+x:"")));
+
+/* stateSign/stateRead close over authMac and sameString, which live in
+   the first block. Rebuild G with the real ones now that A exists. */
+const G2 = new Function("crypto", "TextEncoder", "btoa", "atob", "ALLOWED", "b64url", "authMac", "sameString", "authOn",
+  gblock + "\nreturn { googleOn, b64urlStr, unb64url, safeBack, stateSign, stateRead };")(
+  globalThis.crypto, globalThis.TextEncoder, globalThis.btoa, globalThis.atob,
+  ["https://stations.fit","https://www.stations.fit","https://betterplasticsurgery.github.io"],
+  A.b64url, A.authMac ?? null, A.sameString, A.authOn);
 
 const env  = { AUTH_SECRET: "test-secret-not-a-real-one-0123456789" };
 const other= { AUTH_SECRET: "a-different-secret-entirely-987654321" };
@@ -114,6 +131,57 @@ console.log("\nthe pieces underneath");
      await A.sha256hex("abc") === "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
   ok("comparison rejects different lengths", A.sameString("abc","abcd") === false);
   ok("and accepts an exact match", A.sameString("abc","abc") === true);
+}
+
+console.log("\nwhere Google may send you back");
+{
+  /* An unchecked return address is an open redirect, and an open
+     redirect on the domain holding the session is how a token gets
+     handed to a stranger. This is the highest-value test in the file. */
+  for (const evil of [
+      "https://evil.example.com/steal",
+      "http://stations.fit.evil.com/",
+      "https://stations.fit.evil.com/",
+      "//evil.example.com",
+      "javascript:alert(1)",
+      "",
+      "https://evilstations.fit/"
+  ]) ok("refuses " + JSON.stringify(evil),
+        G2.safeBack(evil).startsWith("https://stations.fit"), G2.safeBack(evil));
+
+  ok("allows the real site", G2.safeBack("https://stations.fit/") === "https://stations.fit/");
+  ok("allows the www host", G2.safeBack("https://www.stations.fit/x") === "https://www.stations.fit/x");
+  ok("allows the pages host",
+     G2.safeBack("https://betterplasticsurgery.github.io/stations/").startsWith("https://betterplasticsurgery.github.io"));
+  ok("allows localhost, for working on it",
+     G2.safeBack("http://localhost:8080/index.html") === "http://localhost:8080/index.html");
+  ok("and strips any query or hash it was handed",
+     G2.safeBack("https://stations.fit/a?tok=leak#x") === "https://stations.fit/a");
+}
+
+console.log("\nthe state parameter");
+{
+  const st = await G2.stateSign(env, { did:"d1", back:"https://stations.fit/", t: Date.now() });
+  const back = await G2.stateRead(env, st);
+  ok("round-trips", back && back.did === "d1", JSON.stringify(back));
+  ok("a state signed with another secret is refused",
+     await G2.stateRead(env, await G2.stateSign(other, { t: Date.now() })) === null);
+  ok("a tampered payload is refused",
+     await G2.stateRead(env, "x" + st) === null);
+  const old = await G2.stateSign(env, { t: Date.now() - 20*60*1000 });
+  ok("and one from twenty minutes ago is refused", await G2.stateRead(env, old) === null);
+  for (const junk of ["", "a", "a.b.c"])
+    ok("junk state is refused: " + JSON.stringify(junk), await G2.stateRead(env, junk) === null);
+}
+
+console.log("\nthe Google gate");
+{
+  ok("off with no client id", G2.googleOn({ AUTH_SECRET:"x", GOOGLE_CLIENT_SECRET:"y" }) === false);
+  ok("off with no client secret", G2.googleOn({ AUTH_SECRET:"x", GOOGLE_CLIENT_ID:"y" }) === false);
+  ok("off without an auth secret at all",
+     G2.googleOn({ GOOGLE_CLIENT_ID:"a", GOOGLE_CLIENT_SECRET:"b" }) === false);
+  ok("on only with all three",
+     G2.googleOn({ AUTH_SECRET:"x", GOOGLE_CLIENT_ID:"a", GOOGLE_CLIENT_SECRET:"b" }) === true);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);
