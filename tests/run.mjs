@@ -739,12 +739,35 @@ console.log("\nthe painted ground");
     run.className = was;
     return out;
   });
-  const opaque = c => !/rgba\(/.test(c) || /,\s*1\)$/.test(c);
-  ok("a working interval is fully opaque", opaque(bg.work), bg.work);
-  ok("and rest is not", !opaque(bg.rest), bg.rest);
-  ok("nor warm-up, halftime or cool-down",
-     !opaque(bg.warmup) && !opaque(bg.halftime) && !opaque(bg.cooldown),
-     [bg.warmup,bg.halftime,bg.cooldown].join(" "));
+  /* The painting shows through every segment now, so opacity is no longer
+     the contract. The contract is contrast: work must be the darkest state
+     on the screen, and it must clear a wide margin against white text with
+     the lightest part of the ground behind it. Composite each declared
+     wash over that lightest part and compare. */
+  const GROUND = [61, 81, 99];                       // #3d5163, the top of the field
+  const parse = c => {
+    const n = c.match(/[\d.]+/g).map(Number);
+    return { r:n[0], g:n[1], b:n[2], a: n.length > 3 ? n[3] : 1 };
+  };
+  const lin = v => (v/=255) <= .04045 ? v/12.92 : Math.pow((v+.055)/1.055, 2.4);
+  const lum = c => {
+    const p = parse(c);
+    const mix = i => GROUND[i]*(1-p.a) + [p.r,p.g,p.b][i]*p.a;
+    return .2126*lin(mix(0)) + .7152*lin(mix(1)) + .0722*lin(mix(2));
+  };
+  const contrast = c => 1.05 / (lum(c) + .05);
+  const others = ["rest","warmup","halftime","cooldown"];
+  ok("a working interval is the darkest state on the screen",
+     others.every(k => lum(bg.work) < lum(bg[k])),
+     others.map(k => k + " " + lum(bg[k]).toFixed(4)).join(", ") + " vs work " + lum(bg.work).toFixed(4));
+  ok("and the clock clears a wide margin over the lightest ground",
+     contrast(bg.work) >= 12, contrast(bg.work).toFixed(1) + ":1");
+  ok("every other segment is still readable too",
+     others.every(k => contrast(bg[k]) >= 4.5),
+     others.map(k => k + " " + contrast(bg[k]).toFixed(1)).join(", "));
+  ok("and the painting is behind all five, not switched off for work",
+     [bg.work, ...others.map(k => bg[k])].every(c => parse(c).a < 1),
+     bg.work);
 
   /* the marks are inline; nothing about the look may add a request */
   const external = [];

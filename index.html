@@ -614,17 +614,31 @@ body.mixon .foot{display:none}
   text-shadow:0 1px 12px rgba(6,15,22,.9);padding-bottom:calc(10px + env(safe-area-inset-bottom))}
 
 /* segment theming — differentiated by weight, and by how much of the
-   painting is allowed through. A working interval goes to solid black: mid
-   set the clock is the only thing that has to read, from across a room,
-   and a busy field behind it costs exactly the contrast you need. Every
-   other segment lets the ground back in, so the work looks like a held
-   breath rather than the normal state. */
-#run.work    {background:#000}                #run.work    .clock{color:#fff}    #run.work    .bar i{background:#fff}
+   painting is allowed through. Work is the darkest state and always will
+   be: mid set the clock has to read from across a room, and that is a
+   contrast budget, not a taste. But dark is not the same as absent. The
+   ground stays behind the figure under a heavy wash, so the app is one
+   surface the whole way through and the work reads as the painting
+   turned down rather than the painting switched off.
+
+   The wash is doing real work: over the deepest part of the field it
+   lands near #071016, which is 19:1 against white — within a hair of the
+   21:1 that pure black gave, and far more than the 4.5:1 anything has to
+   clear. There is nothing to win by going the rest of the way to black.
+
+   The one exception is a call: with a partner's room behind the timer
+   there is already a moving image to compete with, so body.duo keeps its
+   own tint below. */
+#run.work    {background:rgba(5,11,16,.80)}   #run.work    .clock{color:#fff}    #run.work    .bar i{background:#fff}
 #run.rest    {background:rgba(7,17,23,.58)}   #run.rest    .clock{color:#93a7b4} #run.rest    .bar i{background:#93a7b4}
 #run.halftime{background:rgba(7,17,23,.58)}   #run.halftime .clock{color:#adbecb} #run.halftime .bar i{background:#adbecb}
 #run.warmup  {background:rgba(7,17,23,.52)}   #run.warmup  .clock{color:#d3dee6} #run.warmup  .bar i{background:#d3dee6}
 #run.cooldown{background:rgba(7,17,23,.52)}   #run.cooldown .clock{color:#d3dee6} #run.cooldown .bar i{background:#d3dee6}
-#run:not(.work) .clock,#run:not(.work) .exname,#run:not(.work) .phase{text-shadow:0 2px 18px rgba(4,12,18,.75)}
+#run .clock,#run .exname,#run .phase{text-shadow:0 2px 18px rgba(4,12,18,.75)}
+/* The demo figure is a flat white silhouette. On black it needed nothing;
+   over a painted field a hairline of shadow keeps its edge from dissolving
+   into a pale mark that happens to sit behind it. */
+#run .figwrap{filter:drop-shadow(0 3px 16px rgba(4,12,18,.7))}
 #run.rest .phase,#run.halftime .phase{color:var(--dim2)}
 #run.paused .clock{opacity:.4}
 #run.last3 .clock{animation:pulse .5s ease-in-out infinite alternate}
