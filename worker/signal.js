@@ -32,6 +32,13 @@
      POST /subscribe      → a Stripe Checkout session to send them to.
      POST /activate       → binds a completed checkout to a device.
      POST /stripe/webhook → cancellations and failed payments.
+     POST /account/new    → an account for this device, and the one
+                            recovery code that can move it elsewhere.
+     POST /account/redeem → hand that code to a second device.
+     GET  /account/me     → who the bearer token says you are.
+     POST /account/rotate → a fresh code, killing the old one.
+     POST /account/link/*  → magic-link sign-in. Dark until a mail
+                            provider is configured.
 
    Deploy: see worker/README.md
    ========================================================= */
@@ -59,7 +66,7 @@ function corsFor(req){
   return {
     "Access-Control-Allow-Origin": ok ? o : ALLOWED[0],
     "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization",
     "Access-Control-Max-Age": "86400"
   };
 }
@@ -86,7 +93,9 @@ export default {
 
     if (url.pathname === "/trial"){
       const did = (url.searchParams.get("did") || "").slice(0, 64);
-      const r = await ledger(env).fetch(new Request("https://l/state?did=" + encodeURIComponent(did)));
+      const who = await whoIs(env, req, did);
+      const r = await ledger(env).fetch(new Request("https://l/state?did=" +
+        encodeURIComponent(who.did) + "&uid=" + encodeURIComponent(who.uid)));
       return new Response(await r.text(), {
         headers: { ...cors, "Content-Type":"application/json", "Cache-Control":"no-store" }});
     }
@@ -151,7 +160,7 @@ export default {
     }
     if (url.pathname === "/activate" && req.method === "POST"){
       let b = {}; try{ b = await req.json(); }catch(e){}
-      const out = await stripeActivate(env, b || {});
+      const out = await stripeActivate(env, b || {}, req);
       return new Response(JSON.stringify(out), { status: out.ok ? 200 : 400,
         headers: { ...cors, "Content-Type":"application/json" }});
     }
@@ -159,12 +168,47 @@ export default {
       return stripeWebhook(env, req);
     }
 
+    /* ---- accounts ----
+       Dead until AUTH_SECRET is set, and the app behaves exactly as it
+       does today in the meantime. */
+    if (url.pathname.startsWith("/account/")){
+      const j = (o, st) => new Response(JSON.stringify(o), { status: st || (o.ok ? 200 : 400),
+        headers: { ...cors, "Content-Type":"application/json", "Cache-Control":"no-store" }});
+      let b = {}; if (req.method === "POST") { try{ b = await req.json(); }catch(e){} }
+
+      if (url.pathname === "/account/me")
+        return j(await acctMe(env, req, (url.searchParams.get("did") || "").slice(0,64)), 200);
+      if (url.pathname === "/account/new" && req.method === "POST")
+        return j(await acctNew(env, b || {}));
+      if (url.pathname === "/account/redeem" && req.method === "POST")
+        return j(await acctRedeem(env, b || {}));
+      if (url.pathname === "/account/rotate" && req.method === "POST")
+        return j(await acctRotate(env, req, b || {}));
+      return new Response("nope", { status:404, headers:cors });
+    }
+
     const m = url.pathname.match(/^\/room\/([A-Za-z0-9_-]{4,40})$/);
     if (m){
       if (req.headers.get("Upgrade") !== "websocket")
         return new Response("expected a websocket", { status:426, headers:cors });
+      /* A WebSocket handshake cannot carry an Authorization header, so the
+         token rides in the query string. It is verified HERE and the URL is
+         rewritten before the room ever sees it: the room is only reachable
+         through this worker, so a uid it receives is one we vouched for. A
+         uid the client simply asserted is dropped on the floor. */
+      const tok = url.searchParams.get("tok") || "";
+      const t = await authRead(env, tok);
+      let uid = "";
+      if (t){
+        const g = await (await ledger(env).fetch(
+          new Request("https://l/acct/gen?uid=" + encodeURIComponent(t.uid)))).json();
+        if (g.ok && g.gen === t.gen) uid = t.uid;
+      }
+      url.searchParams.delete("tok");
+      url.searchParams.set("uid", uid);
+      const fwd = new Request(url.toString(), req);
       const id = env.ROOM.idFromName(m[1]);
-      return env.ROOM.get(id).fetch(req);
+      return env.ROOM.get(id).fetch(fwd);
     }
 
     return new Response("stations signalling relay", { status:404, headers:cors });
@@ -204,7 +248,12 @@ export class Room extends DurableObject {
     if (live.length >= MAX_PEERS)
       return new Response("room is full", { status:409 });
 
-    const did = (new URL(req.url).searchParams.get("did") || "").slice(0, 64);
+    const q   = new URL(req.url).searchParams;
+    const did = (q.get("did") || "").slice(0, 64);
+    /* Set by the worker from a verified token, or empty. Never trusted
+       from the client — see the /room route. */
+    const uid = (q.get("uid") || "").slice(0, 64);
+    const whoQ = "did=" + encodeURIComponent(did) + "&uid=" + encodeURIComponent(uid);
     const first = live.length === 0;
 
     /* The host is the one who needs standing. Whoever they invite gets in
@@ -212,7 +261,7 @@ export class Room extends DurableObject {
        recommend, and the invited friend is exactly who you want to reach. */
     if (first){
       const v = await this.env.LEDGER.get(this.env.LEDGER.idFromName("v1"))
-        .fetch(new Request("https://l/check?did=" + encodeURIComponent(did)));
+        .fetch(new Request("https://l/check?" + whoQ));
       const j = await v.json();
       if (!j.allowed){
         const pair = new WebSocketPair();
@@ -224,6 +273,7 @@ export class Room extends DurableObject {
       }
       await this.ctx.storage.deleteAll();     // a fresh room, whatever was here before
       await this.ctx.storage.put("host", did);
+      await this.ctx.storage.put("hostUid", uid);
     }
 
     const pair = new WebSocketPair();
@@ -240,8 +290,12 @@ export class Room extends DurableObject {
        invite is made. Otherwise a link nobody opens costs a workout. */
     if (!first){
       const host = await this.ctx.storage.get("host");
+      const hostUid = (await this.ctx.storage.get("hostUid")) || "";
+      /* Spent against the host's account when they have one, so a free
+         session cannot be had twice by signing in on a second phone. */
       if (host) this.env.LEDGER.get(this.env.LEDGER.idFromName("v1"))
-        .fetch(new Request("https://l/spend?did=" + encodeURIComponent(host)))
+        .fetch(new Request("https://l/spend?did=" + encodeURIComponent(host) +
+                           "&uid=" + encodeURIComponent(hostUid)))
         .catch(() => {});
     }
 
@@ -322,6 +376,21 @@ export class Ledger extends DurableObject {
       status TEXT NOT NULL, at INTEGER NOT NULL)`);
     this.sql.exec(`CREATE TABLE IF NOT EXISTS interest(
       email TEXT PRIMARY KEY, did TEXT, at INTEGER NOT NULL, used INTEGER)`);
+    /* An account is a uid, a generation, and a code hash. email is null
+       until a magic link is used — the column exists now so that landing
+       does not need a migration on a live table. */
+    this.sql.exec(`CREATE TABLE IF NOT EXISTS accts(
+      uid TEXT PRIMARY KEY, code TEXT, email TEXT,
+      gen INTEGER NOT NULL DEFAULT 1,
+      created INTEGER NOT NULL, seen INTEGER NOT NULL)`);
+    this.sql.exec(`CREATE UNIQUE INDEX IF NOT EXISTS accts_code ON accts(code)`);
+    /* trials and subs were keyed by device before accounts existed. The
+       column is added rather than the tables rebuilt, and every existing
+       row keeps working with a null uid until a device claims it. */
+    for (const t of ["trials", "subs"]){
+      try{ this.sql.exec(`ALTER TABLE ${t} ADD COLUMN uid TEXT`); }catch(e){}
+      try{ this.sql.exec(`CREATE INDEX IF NOT EXISTS ${t}_uid ON ${t}(uid)`); }catch(e){}
+    }
     /* This table is already live with the original four columns, and SQLite
        has no ADD COLUMN IF NOT EXISTS. Adding each one and ignoring the
        failure is the ordinary way to migrate a table you cannot drop. */
@@ -330,20 +399,49 @@ export class Ledger extends DurableObject {
     }
   }
 
-  subbed(did){
+  /* An account first, the bare device second. Both, because a device
+     that has not been claimed yet still has to work. */
+  subbed(uid, did){
+    if (uid){
+      const r = [...this.sql.exec(
+        "SELECT 1 AS x FROM subs WHERE uid = ? AND status = 'active' LIMIT 1", uid)];
+      if (r.length) return true;
+    }
     if (!did) return false;
     const r = [...this.sql.exec("SELECT status FROM subs WHERE did = ?", did)];
     return !!r.length && r[0].status === "active";
   }
 
-  row(did){
+  /* The highest count across the account's devices, not the sum and not
+     this device's. Signing in on a new phone must not hand out three more
+     free calls, and it must not retroactively spend calls either. */
+  row(uid, did){
+    if (uid){
+      const r = [...this.sql.exec(
+        "SELECT COALESCE(MAX(used), 0) AS u FROM trials WHERE uid = ?", uid)];
+      const byAcct = r.length ? r[0].u : 0;
+      const mine = did ? this.rowDid(did) : 0;
+      return Math.max(byAcct, mine);
+    }
+    return did ? this.rowDid(did) : 0;
+  }
+  rowDid(did){
     const r = [...this.sql.exec("SELECT used FROM trials WHERE did = ?", did)];
     return r.length ? r[0].used : 0;
+  }
+
+  /* Everything this device has done becomes the account's. Called once,
+     when an account is made or a code is redeemed on a new device. */
+  claim(uid, did){
+    if (!uid || !did) return;
+    this.sql.exec("UPDATE trials SET uid = ? WHERE did = ?", uid, did);
+    this.sql.exec("UPDATE subs   SET uid = ? WHERE did = ?", uid, did);
   }
 
   async fetch(req){
     const url = new URL(req.url);
     const did = (url.searchParams.get("did") || "").slice(0, 64);
+    const uid = (url.searchParams.get("uid") || "").slice(0, 64);
     const now = Date.now();
     const json = (o, status) => new Response(JSON.stringify(o),
       { status: status || 200, headers:{ "Content-Type":"application/json" }});
@@ -352,8 +450,8 @@ export class Ledger extends DurableObject {
 
       /* Read-only. Used to show "2 of 3 left" before anyone commits. */
       case "/state": {
-        const used = did ? this.row(did) : 0;
-        const sub = this.subbed(did);
+        const used = this.row(uid, did);
+        const sub = this.subbed(uid, did);
         return json({ used, limit:FREE_CALLS,
                       remaining: sub ? 9999 : Math.max(0, FREE_CALLS - used),
                       subscribed: sub });
@@ -362,9 +460,9 @@ export class Ledger extends DurableObject {
       /* Asked before a room opens. A missing did is treated as spent —
          a client that will not identify itself does not get free calls. */
       case "/check": {
-        if (!did) return json({ allowed:false, used:FREE_CALLS, limit:FREE_CALLS });
-        if (this.subbed(did)) return json({ allowed:true, subscribed:true, used:0, limit:FREE_CALLS });
-        const used = this.row(did);
+        if (!did && !uid) return json({ allowed:false, used:FREE_CALLS, limit:FREE_CALLS });
+        if (this.subbed(uid, did)) return json({ allowed:true, subscribed:true, used:0, limit:FREE_CALLS });
+        const used = this.row(uid, did);
         return json({ allowed: used < FREE_CALLS, used, limit:FREE_CALLS });
       }
 
@@ -372,22 +470,24 @@ export class Ledger extends DurableObject {
       case "/spend": {
         if (!did) return json({ ok:false });
         this.sql.exec(
-          `INSERT INTO trials(did, used, first_seen, last_seen) VALUES(?, 1, ?, ?)
-           ON CONFLICT(did) DO UPDATE SET used = used + 1, last_seen = excluded.last_seen`,
-          did, now, now);
-        return json({ ok:true, used: this.row(did) });
+          `INSERT INTO trials(did, used, first_seen, last_seen, uid) VALUES(?, 1, ?, ?, ?)
+           ON CONFLICT(did) DO UPDATE SET used = used + 1, last_seen = excluded.last_seen,
+             uid = COALESCE(excluded.uid, trials.uid)`,
+          did, now, now, uid || null);
+        return json({ ok:true, used: this.row(uid, did) });
       }
 
       case "/sub": {
         let b = {}; try{ b = await req.json(); }catch(e){}
         if (!b.did) return json({ ok:false });
         this.sql.exec(
-          `INSERT INTO subs(did, email, customer, sub, status, at) VALUES(?, ?, ?, ?, ?, ?)
+          `INSERT INTO subs(did, email, customer, sub, status, at, uid) VALUES(?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(did) DO UPDATE SET email=excluded.email, customer=excluded.customer,
-             sub=excluded.sub, status=excluded.status, at=excluded.at`,
+             sub=excluded.sub, status=excluded.status, at=excluded.at,
+             uid = COALESCE(excluded.uid, subs.uid)`,
           String(b.did).slice(0,64), String(b.email||"").slice(0,254),
           String(b.customer||"").slice(0,64), String(b.sub||"").slice(0,64),
-          String(b.status||"active").slice(0,24), now);
+          String(b.status||"active").slice(0,24), now, String(b.uid||"").slice(0,64) || null);
         return json({ ok:true });
       }
 
@@ -397,6 +497,58 @@ export class Ledger extends DurableObject {
         if (b.sub)      this.sql.exec("UPDATE subs SET status='ended', at=? WHERE sub = ?", now, String(b.sub));
         if (b.customer) this.sql.exec("UPDATE subs SET status='ended', at=? WHERE customer = ?", now, String(b.customer));
         return json({ ok:true });
+      }
+
+      /* ---- accounts ---- */
+
+      case "/acct/gen": {
+        if (!uid) return json({ ok:false });
+        const r = [...this.sql.exec("SELECT gen FROM accts WHERE uid = ?", uid)];
+        if (!r.length) return json({ ok:false });
+        this.sql.exec("UPDATE accts SET seen = ? WHERE uid = ?", now, uid);
+        return json({ ok:true, gen: r[0].gen });
+      }
+
+      case "/acct/new": {
+        let b = {}; try{ b = await req.json(); }catch(e){}
+        if (!b.uid || !b.hash) return json({ ok:false });
+        try{
+          this.sql.exec(
+            `INSERT INTO accts(uid, code, gen, created, seen) VALUES(?, ?, 1, ?, ?)`,
+            String(b.uid), String(b.hash), now, now);
+        }catch(e){
+          /* The unique index on the hash is the guard. Two codes colliding
+             is a sixty-bit coincidence; a caller retrying is not. */
+          return json({ ok:false, error:"could not create that account" });
+        }
+        this.claim(String(b.uid), String(b.did || ""));
+        return json({ ok:true });
+      }
+
+      case "/acct/redeem": {
+        let b = {}; try{ b = await req.json(); }catch(e){}
+        const r = [...this.sql.exec("SELECT uid, gen FROM accts WHERE code = ?", String(b.hash || ""))];
+        if (!r.length) return json({ ok:false });
+        const who = r[0].uid;
+        /* The new device joins the account. It does not bring its own
+           trial history with it — see claim(). */
+        this.claim(who, String(b.did || ""));
+        this.sql.exec("UPDATE accts SET seen = ? WHERE uid = ?", now, who);
+        return json({ ok:true, uid: who, gen: r[0].gen,
+                      subscribed: this.subbed(who, String(b.did || "")) });
+      }
+
+      case "/acct/rotate": {
+        let b = {}; try{ b = await req.json(); }catch(e){}
+        if (!b.uid || !b.hash) return json({ ok:false });
+        const r = [...this.sql.exec("SELECT gen FROM accts WHERE uid = ?", String(b.uid))];
+        if (!r.length) return json({ ok:false });
+        const gen = r[0].gen + 1;
+        try{
+          this.sql.exec("UPDATE accts SET code = ?, gen = ?, seen = ? WHERE uid = ?",
+            String(b.hash), gen, now, String(b.uid));
+        }catch(e){ return json({ ok:false }); }
+        return json({ ok:true, gen });
       }
 
       case "/interest": {
@@ -435,8 +587,9 @@ export class Ledger extends DurableObject {
         const t = [...this.sql.exec("SELECT COUNT(*) AS n, COALESCE(SUM(used),0) AS s FROM trials")][0] || {};
         const spent = [...this.sql.exec("SELECT COUNT(*) AS n FROM trials WHERE used >= ?", FREE_CALLS)][0] || {};
         const subs = [...this.sql.exec("SELECT COUNT(*) AS n FROM subs WHERE status='active'")][0] || {};
+        const accts = [...this.sql.exec("SELECT COUNT(*) AS n FROM accts")][0] || {};
         return json({ interest, devices: t.n || 0, sessions: t.s || 0, spent: spent.n || 0,
-                      subscribers: subs.n || 0 });
+                      subscribers: subs.n || 0, accounts: accts.n || 0 });
       }
 
       case "/export": {
@@ -644,6 +797,7 @@ a{color:var(--dim2)}
   <div class="stat"><div class="k">Sessions used</div><div class="v">${d.sessions || 0}</div></div>
   <div class="stat"><div class="k">Hit the wall</div><div class="v">${d.spent || 0}</div></div>
   <div class="stat"><div class="k">Subscribers</div><div class="v">${d.subscribers || 0}</div></div>
+  <div class="stat"><div class="k">Accounts</div><div class="v">${d.accounts || 0}</div></div>
 </div>
 ${rows ? `<table><tr><th>Who</th><th>Phone</th><th>When (UTC)</th></tr>${rows}</table>`
        : `<div class="empty">Nobody yet. That is information too — it means either
@@ -670,6 +824,191 @@ ${rows ? `<table><tr><th>Who</th><th>Phone</th><th>When (UTC)</th></tr>${rows}</
    ========================================================= */
 
 const STRIPE = "https://api.stripe.com/v1/";
+
+/* =========================================================
+   ACCOUNTS
+   =========================================================
+   Until now a subscription belonged to a string in localStorage. That
+   is fine right up until someone clears their site data or buys a new
+   phone, at which point they have paid for something they cannot reach
+   and the only fix is an email to a human.
+
+   An account is a uid, a generation number, and — for now — one
+   recovery code. There is no password, because a password is a thing
+   to store, to leak, and to reset, and none of that buys anything here.
+
+   The code is the whole of it: sixty bits, shown once, kept only as a
+   hash. Someone who steals the database gets hashes, and someone who
+   steals a code gets a fitness app. That is the right amount of
+   security for what is being protected.
+
+   Sessions are a signed string rather than a table, so checking one is
+   arithmetic and not a read. The generation number is the escape hatch:
+   bump it and every token ever minted for that account stops verifying,
+   which is what "I lost my phone" has to mean.
+
+   Everything here is dead until AUTH_SECRET is set, exactly like the
+   billing routes. An account layer with no secret would sign tokens
+   anyone could forge, so it refuses to sign at all.
+   ========================================================= */
+
+const TOKEN_DAYS = 180;
+/* No I/O/0/1/L/U. People read these off a screen and type them into a
+   phone, and every confusable pair is a support email. */
+const CODE_ALPHA = "23456789ABCDEFGHJKMNPQRSTVWXYZ";
+const CODE_LEN   = 12;
+
+function authOn(env){ return !!env.AUTH_SECRET; }
+
+function b64url(bytes){
+  let s = ""; for (const b of bytes) s += String.fromCharCode(b);
+  return btoa(s).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
+}
+function randomBytes(n){ return crypto.getRandomValues(new Uint8Array(n)); }
+
+/* 128 bits. Not sequential, because a sequential id tells anyone who
+   holds one roughly how many customers there are. */
+function newUid(){ return b64url(randomBytes(16)); }
+
+/* Rejection sampling, not modulo. A 30-letter alphabet does not divide
+   256, so modulo would quietly make the first six letters likelier than
+   the rest and cost real entropy for nothing. */
+function newCode(){
+  let out = "";
+  while (out.length < CODE_LEN){
+    for (const b of randomBytes(CODE_LEN * 2)){
+      if (b >= 240) continue;                       // 240 = 30 * 8
+      out += CODE_ALPHA[b % CODE_ALPHA.length];
+      if (out.length === CODE_LEN) break;
+    }
+  }
+  return out;
+}
+
+/* Grouped for reading and typing. The canonical form is the bare twelve
+   characters — that is what gets hashed, so a code works whether it is
+   typed with the dashes, without them, or pasted with a stray space. */
+function prettyCode(c){ return c.match(/.{1,4}/g).join("-"); }
+function tidyCode(raw){ return String(raw || "").toUpperCase().replace(/[\s\-._]+/g, ""); }
+function validCode(c){
+  return c.length === CODE_LEN && [...c].every(ch => CODE_ALPHA.includes(ch));
+}
+
+async function sha256hex(text){
+  const d = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+  return [...new Uint8Array(d)].map(b => b.toString(16).padStart(2,"0")).join("");
+}
+
+async function authMac(env, msg){
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(env.AUTH_SECRET),
+    { name:"HMAC", hash:"SHA-256" }, false, ["sign"]);
+  return b64url(new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(msg))));
+}
+
+function sameString(a, b){
+  if (a.length !== b.length) return false;
+  let d = 0;
+  for (let i = 0; i < a.length; i++) d |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return d === 0;
+}
+
+/* v1.<uid>.<gen>.<expiry>.<signature> — flat, so parsing it cannot be
+   the interesting part of an attack. */
+async function authSign(env, uid, gen, ms){
+  const exp = Date.now() + (ms || TOKEN_DAYS * 86400000);
+  const body = "v1." + uid + "." + gen + "." + exp;
+  return body + "." + await authMac(env, body);
+}
+
+/* Signature and expiry only. Whether that generation is still current is
+   a question for the ledger, and the caller asks it when it matters. */
+async function authRead(env, tok){
+  if (!authOn(env) || !tok) return null;
+  const p = String(tok).split(".");
+  if (p.length !== 5 || p[0] !== "v1") return null;
+  const body = p.slice(0, 4).join(".");
+  if (!sameString(await authMac(env, body), p[4])) return null;
+  const exp = Number(p[3]);
+  if (!isFinite(exp) || exp < Date.now()) return null;
+  return { uid: p[1], gen: Number(p[2]) };
+}
+
+/* The identity behind a request: the token when there is a good one,
+   the device id otherwise. Every route that used to take a bare did
+   goes through here, so an account and a lone browser are the same
+   shape to everything downstream. */
+async function whoIs(env, req, did){
+  const h = req.headers.get("Authorization") || "";
+  const tok = h.startsWith("Bearer ") ? h.slice(7) : "";
+  const t = await authRead(env, tok);
+  if (!t) return { uid:"", did };
+  const r = await ledger(env).fetch(new Request("https://l/acct/gen?uid=" + encodeURIComponent(t.uid)));
+  const g = await r.json();
+  /* A token from before a rotation is a token from a phone that was
+     lost. It verifies, and it is still refused. */
+  if (!g.ok || g.gen !== t.gen) return { uid:"", did };
+  return { uid: t.uid, did };
+}
+
+async function acctNew(env, b){
+  if (!authOn(env)) return { ok:false, error:"accounts are not set up yet" };
+  const did  = String(b.did || "").slice(0, 64);
+  if (!did) return { ok:false, error:"no device" };
+  const uid  = newUid();
+  const code = newCode();
+  const r = await ledger(env).fetch(new Request("https://l/acct/new", { method:"POST",
+    body: JSON.stringify({ uid, did, hash: await sha256hex(code) }) }));
+  const out = await r.json();
+  if (!out.ok) return out;
+  /* Shown here and never again — the hash is all that is kept. */
+  return { ok:true, uid, code: prettyCode(code), token: await authSign(env, uid, 1) };
+}
+
+async function acctRedeem(env, b){
+  if (!authOn(env)) return { ok:false, error:"accounts are not set up yet" };
+  const code = tidyCode(b.code);
+  const did  = String(b.did || "").slice(0, 64);
+  /* I, O, L, U, 0 and 1 are not in the alphabet, so a code containing
+     one was misread rather than mistyped. Say so, because "that code did
+     not work" sends someone hunting for the wrong problem. */
+  if (!validCode(code))
+    return { ok:false, error: code.length === CODE_LEN
+      ? "check that code — it has a character these codes never use"
+      : "a code is twelve characters, like ABCD-EFGH-JKMN" };
+  const r = await ledger(env).fetch(new Request("https://l/acct/redeem", { method:"POST",
+    body: JSON.stringify({ hash: await sha256hex(code), did }) }));
+  const out = await r.json();
+  /* Deliberately the same sentence for a wrong code and a code that
+     never existed. */
+  if (!out.ok) return { ok:false, error:"that code did not work" };
+  return { ok:true, uid: out.uid, subscribed: !!out.subscribed,
+           token: await authSign(env, out.uid, out.gen) };
+}
+
+async function acctRotate(env, req, b){
+  const who = await whoIs(env, req, String(b.did || "").slice(0, 64));
+  if (!who.uid) return { ok:false, error:"sign in first" };
+  const code = newCode();
+  const r = await ledger(env).fetch(new Request("https://l/acct/rotate", { method:"POST",
+    body: JSON.stringify({ uid: who.uid, hash: await sha256hex(code) }) }));
+  const out = await r.json();
+  if (!out.ok) return out;
+  /* The generation moved, so this request's own token is now stale too. */
+  return { ok:true, code: prettyCode(code), token: await authSign(env, who.uid, out.gen) };
+}
+
+/* Two separate questions, and conflating them is a bug I shipped for
+   ten minutes: whether accounts EXIST on this deployment, and whether
+   THIS browser is signed in. A visitor who has never made one is not
+   evidence that the feature is off. */
+async function acctMe(env, req, did){
+  const who = await whoIs(env, req, did);
+  if (!who.uid) return { ok:true, available: authOn(env), signedIn:false };
+  const r = await ledger(env).fetch(new Request("https://l/state?uid=" + encodeURIComponent(who.uid)));
+  const st = await r.json();
+  return { ok:true, available:true, signedIn:true, uid: who.uid,
+           subscribed: !!st.subscribed, remaining: st.remaining };
+}
 
 function stripeOn(env){ return !!(env.STRIPE_SECRET_KEY && env.STRIPE_PRICE_ID); }
 
@@ -734,10 +1073,13 @@ async function stripeCheckout(env, b, origin){
 /* Called when they come back from Stripe. The session id in the URL is
    not proof of anything on its own — it is checked against Stripe
    before a single free session is granted. */
-async function stripeActivate(env, b){
+async function stripeActivate(env, b, req){
   if (!stripeOn(env)) return { ok:false, error:"billing is not set up yet" };
   const id  = String(b.session_id || "").slice(0, 200);
   const did = String(b.did || "").slice(0, 64);
+  /* If they are already signed in, the subscription is the account's from
+     the first second rather than the device's until they think to save it. */
+  const who = req ? await whoIs(env, req, did) : { uid:"" };
   if (!id || !did) return { ok:false, error:"missing session" };
   try{
     const s = await stripeCall(env, "checkout/sessions/" + encodeURIComponent(id));
@@ -748,7 +1090,8 @@ async function stripeActivate(env, b){
     if (s.client_reference_id && s.client_reference_id !== did)
       return { ok:false, error:"that checkout belongs to another device" };
     await ledger(env).fetch(new Request("https://l/sub", { method:"POST", body: JSON.stringify({
-      did, email: (s.customer_details && s.customer_details.email) || s.customer_email || "",
+      did, uid: who.uid || "",
+      email: (s.customer_details && s.customer_details.email) || s.customer_email || "",
       customer: s.customer || "", sub: s.subscription || "", status: "active"
     })}));
     return { ok:true };

@@ -881,6 +881,112 @@ async function runWith(exercises, on, fade){
      r.arm.length === 0 && r.warm === 0 && r.gum === 0, JSON.stringify(r));
 }
 
+/* ---- 23. accounts: a code that moves a subscription ----
+   The thing this exists to prevent is someone paying, clearing their
+   site data, and finding their subscription gone. So the test is the
+   whole journey: pay on one device, take the code, use it on a second
+   device that has never seen any of it. */
+console.log("\naccounts");
+await fetch(`${RELAY}/__accounts?on=1`);
+await fetch(`${RELAY}/__billing?on=1`);
+{
+  /* --- device one: subscribes, and is handed a code --- */
+  const one = await browser.newContext();
+  const a = await newPage(one, { relay:true });
+  await a.goto(BASE);
+  const did = await a.evaluate(() => duoDid());
+  const sid = await a.evaluate(async relay => {
+    const r = await fetch(relay + "/subscribe", { method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({ did: duoDid(), back: location.href }) });
+    const j = await r.json();
+    return (j.url || "").split("s=")[1];
+  }, RELAY);
+
+  const back = await newPage(one, { relay:true });
+  await back.goto(BASE + "#paid=" + sid);
+  await back.waitForSelector("#duopanel .acbig", { timeout:15000 });
+  const code = (await back.textContent("#duopanel .acbig")).trim();
+  ok("paying hands you a recovery code without being asked", /^[A-Z0-9-]{12,16}$/.test(code), code);
+  ok("and the code is shown where the payment confirmation is",
+     await back.evaluate(() => !!document.querySelector("#duopanel .acode")));
+  /* Two copies of the card exist at once — the payment screen and the
+     settings panel — so each Copy button must be its own element. */
+  ok("each copy of the card has its own Copy button, not a shared id",
+     await back.evaluate(() => document.querySelectorAll('[id^="accopy"]').length ===
+       new Set([...document.querySelectorAll('[id^="accopy"]')].map(e => e.id)).size));
+  const signedIn = await back.evaluate(() => ({ uid: !!AC.uid, tok: !!AC.tok }));
+  ok("the device is signed in from that moment", signedIn.uid && signedIn.tok, JSON.stringify(signedIn));
+  const st1 = await back.evaluate(async () => { await duoTrial(); return DUO.subscribed; });
+  ok("and subscribed", st1 === true);
+
+  /* --- device two: a browser that has never seen any of this --- */
+  const two = await browser.newContext();
+  const b = await newPage(two, { relay:true });
+  await b.goto(BASE);
+  const did2 = await b.evaluate(() => duoDid());
+  ok("the second device really is a different device", did2 !== did, did2 + " vs " + did);
+  const before = await b.evaluate(async () => { await duoTrial(); return DUO.subscribed; });
+  ok("and starts with no subscription", before === false);
+  const avail = await b.evaluate(() => acMe());
+  ok("a browser with no account is still told accounts exist",
+     avail.available === true && avail.signedIn === false, JSON.stringify(avail));
+
+  const wrong = await b.evaluate(() => acRedeem("ZZZZ-ZZZZ-ZZZZ"));
+  ok("a wrong code is refused", wrong.ok === false, JSON.stringify(wrong));
+  const shortCode = await b.evaluate(() => acRedeem("ABC"));
+  ok("and a short one is told what a code looks like",
+     shortCode.ok === false && /twelve/.test(shortCode.error || ""), JSON.stringify(shortCode));
+
+  const got = await b.evaluate(c => acRedeem(c), code);
+  ok("the real code works", got.ok === true, JSON.stringify(got));
+  ok("and brings the subscription with it", got.subscribed === true, JSON.stringify(got));
+  const after = await b.evaluate(async () => { await duoTrial(); return DUO.subscribed; });
+  ok("so the second device is subscribed too", after === true);
+
+  /* Typed by a human: the same code, lowercase, without the dashes. */
+  const three = await browser.newContext();
+  const c = await newPage(three, { relay:true });
+  await c.goto(BASE);
+  const sloppy = await c.evaluate(x => acRedeem(x), " " + code.replace(/-/g,"").toLowerCase() + " ");
+  ok("a code typed without dashes and in lower case still works", sloppy.ok === true, JSON.stringify(sloppy));
+
+  /* --- the point of the whole exercise --- */
+  const wiped = await browser.newContext();
+  const d = await newPage(wiped, { relay:true });
+  await d.goto(BASE);
+  const lost = await d.evaluate(async () => { await duoTrial(); return DUO.subscribed; });
+  ok("clearing your browser loses your subscription", lost === false);
+  await d.evaluate(x => acRedeem(x), code);
+  const found = await d.evaluate(async () => { await duoTrial(); return DUO.subscribed; });
+  ok("and the code is how you get it back", found === true);
+
+  await one.close(); await two.close(); await three.close(); await wiped.close();
+}
+
+/* ---- 24. accounts off ---- */
+console.log("\naccounts, before the secret is set");
+await fetch(`${RELAY}/__accounts?on=0`);
+{
+  const ctx = await browser.newContext();
+  const p = await newPage(ctx, { relay:true });
+  await p.goto(BASE);
+  /* The section has to be able to tell "no accounts here" from "you are
+     not signed in". Answering the first with the second told every new
+     visitor the feature did not exist. */
+  const me = await p.evaluate(() => acMe());
+  ok("the relay says accounts are unavailable, not that you are logged out",
+     me.available === false && me.signedIn === false, JSON.stringify(me));
+  const j = await p.evaluate(() => acCreate());
+  ok("asking for a code is refused rather than pretended", j.ok === false, JSON.stringify(j));
+  ok("and it says why", /not set up/i.test(j.error || ""), j.error);
+  ok("no token is kept from a failed attempt", await p.evaluate(() => !AC.tok));
+  const still = await p.evaluate(async () => { await duoTrial(); return DUO.left; });
+  ok("and the free sessions still work exactly as before", still === FREE_CALLS, String(still));
+  await ctx.close();
+}
+await fetch(`${RELAY}/__billing?on=0`);
+
 await relay.close(); await site.close(); await browser.close();
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

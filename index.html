@@ -678,6 +678,24 @@ body.duo .clock,body.duo .exname,body.duo .phase{text-shadow:0 2px 22px #000}
 /* the partner is already a moving body to copy — the demo figure
    gives up some room rather than competing with them */
 body.duo .figwrap{height:min(22vh,178px)}
+/* ---- accounts ----
+   The recovery code is the entire account, so it is presented like
+   something to write down: monospaced, large, spaced, and never inside
+   a sentence where an eye can slide past it. */
+.acode{border:1px solid #7d5545;border-left:3px solid #dd5238;border-radius:14px;
+  background:rgba(120,58,40,.14);padding:14px 16px;margin:4px 0 2px}
+.acwhy{font-size:13px;line-height:1.55;color:var(--dim);margin:0 0 10px}
+.acbig{font-family:var(--mono);font-size:clamp(20px,6.4vw,27px);font-weight:800;
+  letter-spacing:2px;text-align:center;padding:12px 4px;color:var(--txt);
+  background:rgba(6,15,22,.5);border-radius:10px;user-select:all;-webkit-user-select:all}
+.acrow{display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin-top:11px}
+.acrow .btn{min-height:44px;padding:11px 16px}
+.achint{font-size:11.5px;line-height:1.5;color:var(--dim2);flex:1 1 190px}
+.acrow input.in{flex:1 1 170px;min-width:0;background:var(--panel2);color:var(--txt);
+  border:1px solid var(--line);border-radius:12px;padding:12px 13px;font-size:16px;
+  font-family:var(--mono);letter-spacing:1.5px;text-transform:uppercase}
+.acrow input.in::placeholder{color:var(--dim2);letter-spacing:1.5px}
+
 /* ---- rep counting ----
    The count sits under the exercise name because that is what it is
    about, and the self-view is small and in the corner because its only
@@ -878,6 +896,11 @@ body.duo #repcam{display:none}
       <p class="hint">It stays quiet through the last few seconds of every interval, so the countdown beeps
          still mean something. The 🗣️ button during a session mutes it entirely.</p>
     </div>
+  </details>
+
+  <details class="sec" id="secAccount">
+    <summary><span class="sh">Your access</span><span class="sv" id="acSum">—</span><span class="sc">›</span></summary>
+    <div class="secbody" id="acbody"></div>
   </details>
 
   <details class="sec" id="secReps">
@@ -4385,7 +4408,8 @@ function duoDid(){
 
 async function duoTrial(){
   try{
-    const r = await fetch(DUO_RELAY + "/trial?did=" + encodeURIComponent(duoDid()), { cache:"no-store" });
+    const r = await fetch(DUO_RELAY + "/trial?did=" + encodeURIComponent(duoDid()),
+                          { headers: acHead(), cache:"no-store" });
     const j = await r.json();
     DUO.subscribed = !!j.subscribed;
     DUO.left = j.subscribed ? Infinity : Math.max(0, j.remaining || 0);
@@ -4480,8 +4504,11 @@ async function duoIce(){
 function duoSocket(code){
   return new Promise((res, rej) => {
     let ws;
+    /* A WebSocket handshake carries no Authorization header, so the token
+       goes in the query string and the relay verifies it there. */
     try{ ws = new WebSocket(DUO_RELAY.replace(/^http/, "ws") + "/room/" + code +
-                            "?did=" + encodeURIComponent(duoDid())); }
+                            "?did=" + encodeURIComponent(duoDid()) +
+                            (AC.tok ? "&tok=" + encodeURIComponent(AC.tok) : "")); }
     catch(e){ rej(new Error("that relay address does not look right")); return; }
     const t = setTimeout(() => { try{ ws.close(); }catch(e){} rej(new Error("the relay did not answer")); }, 12000);
     ws.onopen  = () => { clearTimeout(t); res(ws); };
@@ -4797,13 +4824,29 @@ async function duoPaidBoot(){
   duoMsg("Confirming your payment…");
   try{
     const r = await fetch(DUO_RELAY + "/activate", {
-      method:"POST", headers:{ "Content-Type":"application/json" },
+      method:"POST", headers: acHead({ "Content-Type":"application/json" }),
       body: JSON.stringify({ session_id: m[1], did: duoDid() })
     });
     const j = await r.json();
     if (j.ok){
       DUO.subscribed = true; DUO.price = undefined;
       duoMsg("You're in. Train together is unlocked — start a call whenever you like.");
+      /* The one moment worth interrupting for. They have just paid, and
+         right now their purchase is attached to a string in this browser's
+         local storage. Ten seconds spent saving a code here is the whole
+         difference between "I cleared my history" being a shrug and being
+         a support email. Never for a free user — nobody writes down a
+         code to protect nothing. */
+      if (!AC.uid){
+        const a = await acCreate();
+        if (a.ok){
+          $("#duomsg").insertAdjacentHTML("afterend", acCodeCard(a.code,
+            "Before you go: this is how you get back in on another phone, or on " +
+            "this one after clearing your browser. It is shown once.", "paid"));
+          acCopyBind("accopy-paid", a.code);
+          acRender();
+        }
+      }
     } else {
       duoMsg((j.error || "We could not confirm that payment") +
              ". If you were charged, email hello@stations.fit and it will be sorted.", true);
@@ -5668,6 +5711,219 @@ function repBind(){
 }
 
 /* =========================================================
+   19. ACCOUNTS
+   =========================================================
+   A subscription used to belong to a string in localStorage, which is
+   fine until someone clears their site data or buys a new phone — at
+   which point they have paid for something they cannot reach.
+
+   So: an account, and one recovery code that moves it. No password,
+   because a password is a thing to store, to leak and to reset, and
+   none of that buys anything for a workout timer. No email yet either;
+   the magic link lands when there is a mail provider behind it, and
+   this is the shape it will slot into rather than a detour on the way.
+
+   The code is shown exactly once, at the moment it is created, because
+   the server keeps only a hash of it. That is a real constraint and the
+   interface has to be honest about it rather than burying it.
+
+   All of this is dead until the relay has AUTH_SECRET set. Without it
+   /account/new answers no, the section says so plainly, and everything
+   else works exactly as it does today.
+   ========================================================= */
+const TOKKEY = "stations.tok";
+const AC = { tok:"", uid:"", on:false, code:"", checked:false };
+
+function acLoad(){ try{ AC.tok = localStorage.getItem(TOKKEY) || ""; }catch(e){} }
+function acSave(t){
+  AC.tok = t || "";
+  try{ t ? localStorage.setItem(TOKKEY, t) : localStorage.removeItem(TOKKEY); }catch(e){}
+}
+/* Every relay call carries it when there is one. A request without it is
+   still valid — it is just a lone browser rather than an account. */
+function acHead(extra){
+  const h = Object.assign({}, extra || {});
+  if (AC.tok) h["Authorization"] = "Bearer " + AC.tok;
+  return h;
+}
+
+async function acPost(path, body){
+  const r = await fetch(DUO_RELAY + path, {
+    method:"POST", headers: acHead({ "Content-Type":"application/json" }),
+    body: JSON.stringify(body || {})
+  });
+  return r.json();
+}
+
+/* Who the relay thinks we are. Also how the app learns whether accounts
+   exist at all on this deployment. */
+async function acMe(){
+  try{
+    const r = await fetch(DUO_RELAY + "/account/me?did=" + encodeURIComponent(duoDid()),
+      { headers: acHead(), cache:"no-store" });
+    const j = await r.json();
+    AC.checked = true;
+    /* "Are accounts a thing here" and "am I signed in" are different
+       questions. Answering the first with the second told every new
+       visitor the feature did not exist. */
+    AC.on = !!j.available || !!j.signedIn;
+    if (j.signedIn){ AC.uid = j.uid; if (j.subscribed) DUO.subscribed = true; }
+    else if (AC.tok){
+      /* The token no longer verifies — expired, or the code was rotated
+         from another device, which is what "I lost my phone" does. */
+      acSave(""); AC.uid = "";
+    }
+    return j;
+  }catch(e){ return null; }
+}
+
+async function acCreate(){
+  const j = await acPost("/account/new", { did: duoDid() });
+  if (j.ok){ acSave(j.token); AC.uid = j.uid; AC.on = true; AC.code = j.code; }
+  return j;
+}
+
+async function acRedeem(code){
+  const j = await acPost("/account/redeem", { code, did: duoDid() });
+  if (j.ok){
+    acSave(j.token); AC.uid = j.uid; AC.on = true;
+    if (j.subscribed) DUO.subscribed = true;
+  }
+  return j;
+}
+
+async function acRotate(){
+  const j = await acPost("/account/rotate", { did: duoDid() });
+  if (j.ok){ acSave(j.token); AC.code = j.code; }
+  return j;
+}
+
+/* ---- the interface ----
+   The code is the whole account, so it is shown like something you are
+   meant to write down rather than like a status line. */
+/* The same card is shown in two places at once — once where they just
+   paid, once in the settings section — so it cannot carry a fixed id.
+   Two elements sharing one made the Copy button on the payment screen
+   silently wire itself to the hidden copy in the settings panel. */
+function acCodeCard(code, why, tag){
+  const id = "accopy-" + (tag || "x");
+  return '<div class="acode"><p class="acwhy">' + esc(why) + '</p>' +
+         '<div class="acbig">' + esc(code) + '</div>' +
+         '<div class="acrow">' +
+           '<button class="btn" id="' + id + '">Copy</button>' +
+           '<span class="achint">Shown once. We keep only a hash of it, ' +
+             'so nobody — us included — can look it up later.</span>' +
+         '</div></div>';
+}
+/* Clipboard write is called straight from the click, never after an
+   await — Safari drops user activation across one, which is the same
+   trap emblemCopy fell into. */
+function acCopyBind(id, code){
+  const b = document.getElementById(id); if (!b) return;
+  b.onclick = () => {
+    try{
+      navigator.clipboard.writeText(code)
+        .then(() => { b.textContent = "Copied"; })
+        .catch(() => { b.textContent = "Select it and copy"; });
+    }catch(e){ b.textContent = "Select it and copy"; }
+  };
+}
+
+function acRender(){
+  const box = $("#acbody"); if (!box) return;
+  const sum = $("#acSum");
+
+  if (AC.code){
+    box.innerHTML = acCodeCard(AC.code,
+      "This is your recovery code. Put it somewhere you will still have it " +
+      "when this phone is in a river.", "set");
+    if (sum) sum.textContent = "Saved";
+    acCopyBind("accopy-set", AC.code);
+    return;
+  }
+
+  if (AC.uid){
+    box.innerHTML =
+      '<p class="hint">This browser is signed in. Your free session and your subscription ' +
+        'follow the account, not this phone.</p>' +
+      '<div class="acrow"><button class="btn" id="acnew">New recovery code</button></div>' +
+      '<p class="hint">A new code cancels the old one and signs out every other device — ' +
+        'which is what you want if you have lost one.</p>';
+    if (sum) sum.textContent = "Signed in";
+    $("#acnew").onclick = async (e) => {
+      e.target.disabled = true; e.target.textContent = "Working…";
+      const j = await acRotate();
+      if (j.ok) acRender();
+      else { e.target.disabled = false; e.target.textContent = "New recovery code";
+             $("#acerr").textContent = j.error || "That did not work."; }
+    };
+    return;
+  }
+
+  if (AC.checked && !AC.on){
+    box.innerHTML = '<p class="hint">Accounts are not switched on for this deployment yet. ' +
+      'Everything still works — access just stays on this browser.</p>';
+    if (sum) sum.textContent = "—";
+    return;
+  }
+
+  box.innerHTML =
+    '<p class="hint">Right now everything — your free session, and a subscription if you buy one — ' +
+      'lives in this browser. Clear its data or pick up a different phone and it does not follow you. ' +
+      'An account fixes that. There is no password and no email; you get one code.</p>' +
+    '<div class="acrow"><button class="btn primary" id="acmake">Give me a code</button></div>' +
+    '<p class="msub" style="margin-top:20px">Already have one?</p>' +
+    '<div class="acrow"><input id="accode" class="in" placeholder="ABCD-EFGH-JKMN" ' +
+      'autocomplete="one-time-code" autocapitalize="characters" spellcheck="false">' +
+      '<button class="btn" id="acuse">Use it</button></div>' +
+    '<p class="hint" id="acerr"></p>';
+  if (sum) sum.textContent = "Off";
+
+  $("#acmake").onclick = async (e) => {
+    e.target.disabled = true; e.target.textContent = "Working…";
+    const j = await acCreate();
+    if (j.ok) acRender();
+    else { e.target.disabled = false; e.target.textContent = "Give me a code";
+           $("#acerr").textContent = j.error || "That did not work."; }
+  };
+  $("#acuse").onclick = async (e) => {
+    const v = ($("#accode").value || "").trim();
+    if (!v) return;
+    e.target.disabled = true; e.target.textContent = "Checking…";
+    const j = await acRedeem(v);
+    if (j.ok){
+      AC.code = "";
+      acRender();
+      $("#acbody").insertAdjacentHTML("afterbegin",
+        '<p class="hint" style="color:var(--txt)">Done — this browser is on your account' +
+        (j.subscribed ? ", and your subscription came with it." : ".") + '</p>');
+    } else {
+      e.target.disabled = false; e.target.textContent = "Use it";
+      $("#acerr").textContent = j.error || "That code did not work.";
+    }
+  };
+}
+
+function acBind(){
+  acLoad();
+  acRender();
+  /* A cold load contacts nobody. That is a promise the home page makes,
+     the privacy page repeats, and a test enforces — and asking "am I
+     signed in?" on boot quietly broke all three for every visitor who
+     had never made an account.
+
+     So: a browser holding a token asks about it, because that token is
+     how it knows whether it still has a subscription. A browser holding
+     nothing asks nothing, and finds out whether accounts even exist at
+     the moment someone opens the section. */
+  if (AC.tok) acMe().then(() => acRender());
+  const sec = $("#secAccount");
+  if (sec) sec.addEventListener("toggle", () => {
+    if (sec.open && !AC.checked) acMe().then(() => acRender());
+  });
+}
+
+/* =========================================================
    12. BOOT
    ========================================================= */
 S.cfg = cfgFor(PRESETS[0], goalById(S.goalId));
@@ -5676,6 +5932,7 @@ renderPresets(); renderGoals(); renderEquip(); renderConfig();
 profLoad(); histLoad(); histHomeBadge(); renderEquip();
 coachLoad(); renderCoaches();
 repLoad(); repBind();
+acBind();
 // #mixwrap lives after this script, so wait for the full document
 function bootMusicAndShare(){
   musRestore();

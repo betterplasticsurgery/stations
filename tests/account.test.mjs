@@ -1,0 +1,120 @@
+/* Recovery codes and session tokens, tested against the real crypto.
+   Same extraction trick as billing.test.mjs: pull the functions out of
+   the Worker source and run them, so what is tested is what deploys.
+
+   The two failures that matter are opposite. A token that verifies when
+   it should not hands someone else's subscription away. A code that is
+   guessable does the same thing more slowly. Everything below is one of
+   those two questions. */
+import fs from "node:fs";
+
+const src = fs.readFileSync(new URL("../worker/signal.js", import.meta.url), "utf8");
+const block = src.slice(src.indexOf("const TOKEN_DAYS"), src.indexOf("async function whoIs"));
+const A = new Function("crypto", "TextEncoder", "btoa",
+  block + "\nreturn { CODE_ALPHA, CODE_LEN, TOKEN_DAYS, b64url, newUid, newCode, prettyCode," +
+          " tidyCode, validCode, sha256hex, authSign, authRead, sameString, authOn };")(
+  globalThis.crypto, globalThis.TextEncoder, globalThis.btoa);
+
+let pass = 0, fail = 0;
+const ok = (n,c,x="") => c ? (pass++, console.log("  ok   "+n)) : (fail++, console.log("  FAIL "+n+(x?"  — "+x:"")));
+
+const env  = { AUTH_SECRET: "test-secret-not-a-real-one-0123456789" };
+const other= { AUTH_SECRET: "a-different-secret-entirely-987654321" };
+
+console.log("\nthe gate");
+{
+  ok("without a secret, accounts are off", A.authOn({}) === false);
+  ok("a token cannot be read without one", await A.authRead({}, "v1.a.1.99999999999999.x") === null);
+}
+
+console.log("\nrecovery codes");
+{
+  const c = A.newCode();
+  ok("is twelve characters", c.length === A.CODE_LEN, c);
+  ok("uses only the alphabet", [...c].every(ch => A.CODE_ALPHA.includes(ch)), c);
+  ok("and never a character you could misread",
+     !/[IOLU01]/.test(c), c);
+  ok("prints in groups of four", /^[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$/.test(A.prettyCode(c)), A.prettyCode(c));
+
+  const many = Array.from({length: 4000}, () => A.newCode());
+  ok("four thousand codes, no repeats", new Set(many).size === 4000,
+     String(4000 - new Set(many).size) + " collisions");
+
+  /* Rejection sampling exists so no letter is likelier than another. A
+     modulo bug would make the first six letters ~27% more common, which
+     this catches without being flaky: 48000 draws over 30 letters is
+     1600 expected each, and the bound is generous. */
+  const freq = {};
+  for (const ch of many.join("")) freq[ch] = (freq[ch] || 0) + 1;
+  ok("every letter in the alphabet actually appears",
+     Object.keys(freq).length === A.CODE_ALPHA.length,
+     Object.keys(freq).length + " of " + A.CODE_ALPHA.length);
+  const counts = Object.values(freq);
+  const lo = Math.min(...counts), hi = Math.max(...counts), mean = 4000 * A.CODE_LEN / 30;
+  ok("and none is meaningfully likelier than the rest",
+     lo > mean * 0.82 && hi < mean * 1.18,
+     `low ${lo}, high ${hi}, expected ~${Math.round(mean)}`);
+
+  /* 30^12 ≈ 5.3e17. Worth stating in the test rather than in a comment
+     nobody re-derives when someone shortens the code to "look nicer". */
+  const bits = Math.log2(Math.pow(30, A.CODE_LEN));
+  ok("a code is worth at least 55 bits of guessing", bits >= 55, bits.toFixed(1) + " bits");
+}
+
+console.log("\ntyping one in");
+{
+  const c = "ABCD-EFGH-JKMN";
+  ok("dashes are optional", A.tidyCode("ABCDEFGHJKMN") === A.tidyCode(c));
+  ok("case does not matter", A.tidyCode("abcd-efgh-jkmn") === A.tidyCode(c));
+  ok("stray spaces are forgiven", A.tidyCode(" ABCD EFGH JKMN ") === A.tidyCode(c));
+  ok("underscores and dots too", A.tidyCode("ABCD_EFGH.JKMN") === A.tidyCode(c));
+  ok("a good code validates", A.validCode(A.tidyCode(c)));
+  ok("a short one does not", !A.validCode("ABCD"));
+  ok("and a misread character is caught rather than silently dropped",
+     !A.validCode(A.tidyCode("ABCD-EFGH-JKMO")), "trailing O");
+}
+
+console.log("\nsession tokens");
+{
+  const t = await A.authSign(env, "uid123", 4);
+  ok("round-trips", (await A.authRead(env, t))?.uid === "uid123");
+  ok("and carries the generation", (await A.authRead(env, t))?.gen === 4);
+
+  const p = t.split(".");
+  ok("a swapped uid is refused",
+     await A.authRead(env, ["v1","someoneelse",p[2],p[3],p[4]].join(".")) === null);
+  ok("a bumped generation is refused",
+     await A.authRead(env, ["v1",p[1],"99",p[3],p[4]].join(".")) === null);
+  ok("an extended expiry is refused",
+     await A.authRead(env, ["v1",p[1],p[2],String(Date.now()+9e9),p[4]].join(".")) === null);
+  ok("a tampered signature is refused",
+     await A.authRead(env, p.slice(0,4).join(".") + "." + p[4].slice(0,-1) + (p[4].slice(-1) === "A" ? "B" : "A")) === null);
+  ok("a token signed with another secret is refused",
+     await A.authRead(env, await A.authSign(other, "uid123", 4)) === null);
+  ok("and our own token is refused by the other secret",
+     await A.authRead(other, t) === null);
+
+  const dead = await A.authSign(env, "uid123", 1, -1000);
+  ok("an expired token is refused", await A.authRead(env, dead) === null);
+  ok("even though its signature is perfectly good",
+     dead.split(".").length === 5);
+
+  for (const junk of ["", "v1", "v1.a.b", "v2.a.1.9999999999999.x", "....", "not a token"])
+    ok("junk is refused: " + JSON.stringify(junk), await A.authRead(env, junk) === null);
+}
+
+console.log("\nthe pieces underneath");
+{
+  ok("uids are url-safe", !/[+/=]/.test(A.newUid()));
+  ok("uids are 128 bits", A.newUid().length === 22, A.newUid());
+  ok("two uids differ", A.newUid() !== A.newUid());
+  ok("the hash is a sha-256 in hex",
+     /^[0-9a-f]{64}$/.test(await A.sha256hex("hello")));
+  ok("and matches a known vector",
+     await A.sha256hex("abc") === "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
+  ok("comparison rejects different lengths", A.sameString("abc","abcd") === false);
+  ok("and accepts an exact match", A.sameString("abc","abc") === true);
+}
+
+console.log(`\n${pass} passed, ${fail} failed`);
+process.exit(fail ? 1 : 0);

@@ -13,7 +13,19 @@ export function startRelay(){
   const used = new Map();          // did -> sessions spent
   const interest = new Map();      // email -> did
   const coachCalls = [];
-  const subs = new Set();
+  const subs = new Set();                 // did or uid with an active sub
+  /* Accounts, stubbed with the same shape as the Worker's: a token that
+     names an account, a code that moves it, and a generation that a
+     rotation bumps so old tokens stop working. */
+  const accounts = { on:false, byUid:new Map(), byCode:new Map(), n:0 };
+  const bearer = req => {
+    const h = req.headers["authorization"] || "";
+    if (!h.startsWith("Bearer ")) return null;
+    const [uid, gen] = h.slice(7).split(".");
+    const a = accounts.byUid.get(uid);
+    return (a && String(a.gen) === gen) ? a : null;
+  };
+  const tidy = c => String(c||"").toUpperCase().replace(/[\s\-._]+/g,"");
   const billing = { on:false, calls:[], sessions:new Map() };
   const coachMode = { fail:false, slow:false };
   const json = (res, o, status=200) => {
@@ -29,15 +41,18 @@ export function startRelay(){
       res.writeHead(204, {
         "Access-Control-Allow-Origin":"*",
         "Access-Control-Allow-Methods":"GET,POST,OPTIONS",
-        "Access-Control-Allow-Headers":"Content-Type" });
+        "Access-Control-Allow-Headers":"Content-Type, Authorization" });
       return res.end();
     }
     if (u.pathname === "/ice") return json(res, { iceServers: [] });
 
     if (u.pathname === "/trial"){
       const did = u.searchParams.get("did") || "";
-      const spent = used.get(did) || 0;
-      const sub = subs.has(did);
+      const a = bearer(req);
+      /* An account's devices share one count and one subscription. */
+      const spent = a ? Math.max(...[...a.dids].map(d => used.get(d) || 0), 0)
+                      : (used.get(did) || 0);
+      const sub = a ? subs.has(a.uid) || [...a.dids].some(d => subs.has(d)) : subs.has(did);
       return json(res, { used: spent, limit: FREE_CALLS,
                          remaining: sub ? 9999 : Math.max(0, FREE_CALLS - spent), subscribed: sub });
     }
@@ -107,14 +122,75 @@ export function startRelay(){
         const s = billing.sessions.get(String(b.session_id||""));
         if (!s || !s.paid) return json(res, { ok:false, error:"that checkout is not complete" }, 400);
         if (s.did !== b.did) return json(res, { ok:false, error:"that checkout belongs to another device" }, 400);
-        subs.add(b.did);
+        const a = bearer(req);
+        subs.add(a ? a.uid : b.did);
         json(res, { ok:true });
       });
       return;
     }
+    /* ---- accounts, stubbed ---- */
+    if (u.pathname === "/account/me"){
+      const a = bearer(req);
+      if (!a) return json(res, { ok:true, available: accounts.on, signedIn:false });
+      const sub = subs.has(a.uid) || [...a.dids].some(d => subs.has(d));
+      return json(res, { ok:true, available:true, signedIn:true, uid:a.uid, subscribed:sub });
+    }
+    if (u.pathname.startsWith("/account/") && req.method === "POST"){
+      let body=""; req.on("data",c=>body+=c);
+      req.on("end",()=>{
+        let b={}; try{ b=JSON.parse(body); }catch(e){}
+        if (!accounts.on) return json(res, { ok:false, error:"accounts are not set up yet" }, 400);
+
+        if (u.pathname === "/account/new"){
+          if (!b.did) return json(res, { ok:false, error:"no device" }, 400);
+          const uid = "u" + (++accounts.n);
+          /* Must use the Worker's alphabet — I, O, L, U, 0 and 1 are not
+             in it, and a stub that mints codes the real validator would
+             reject tests nothing but itself. */
+          const ALPHA = "23456789ABCDEFGHJKMNPQRSTVWXYZ";
+          const raw = "ABCDEFGH" + ALPHA[accounts.n % 30] + ALPHA[(accounts.n * 7) % 30] + "JK";
+          const code = raw.match(/.{1,4}/g).join("-");
+          const a = { uid, gen:1, code: tidy(code), dids:new Set([b.did]) };
+          accounts.byUid.set(uid, a); accounts.byCode.set(a.code, a);
+          return json(res, { ok:true, uid, code, token: uid + ".1" });
+        }
+        if (u.pathname === "/account/redeem"){
+          /* Mirrors the Worker: a code of the wrong shape is told so,
+             because "that code did not work" sends someone hunting for
+             the wrong problem. */
+          const c = tidy(b.code);
+          if (c.length !== 12)
+            return json(res, { ok:false, error:"a code is twelve characters, like ABCD-EFGH-JKMN" }, 400);
+          if (/[IOLU01]/.test(c))
+            return json(res, { ok:false, error:"check that code — it has a character these codes never use" }, 400);
+          const a = accounts.byCode.get(c);
+          if (!a) return json(res, { ok:false, error:"that code did not work" }, 400);
+          if (b.did) a.dids.add(b.did);
+          const sub = subs.has(a.uid) || [...a.dids].some(d => subs.has(d));
+          return json(res, { ok:true, uid:a.uid, subscribed:sub, token: a.uid + "." + a.gen });
+        }
+        if (u.pathname === "/account/rotate"){
+          const a = bearer(req);
+          if (!a) return json(res, { ok:false, error:"sign in first" }, 400);
+          accounts.byCode.delete(a.code);
+          a.gen++; a.code = tidy("WXYZ-2345-6789");
+          accounts.byCode.set(a.code, a);
+          return json(res, { ok:true, code:"WXYZ-2345-6789", token: a.uid + "." + a.gen });
+        }
+        return json(res, { ok:false }, 404);
+      });
+      return;
+    }
+    if (u.pathname === "/__accounts"){
+      accounts.on = u.searchParams.get("on") === "1";
+      accounts.byUid.clear(); accounts.byCode.clear(); accounts.n = 0;
+      return json(res, { ok:true, on:accounts.on });
+    }
+
     if (u.pathname === "/__billing"){
       billing.on = u.searchParams.get("on") === "1";
       billing.calls.length = 0; billing.sessions.clear(); subs.clear();
+      accounts.byUid.clear(); accounts.byCode.clear(); accounts.n = 0;
       return json(res, { ok:true, on:billing.on });
     }
     if (u.pathname === "/__billingcalls") return json(res, billing.calls);

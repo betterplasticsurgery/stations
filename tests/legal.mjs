@@ -52,8 +52,10 @@ console.log("\nthe pages");
   ok("and it is linkable, so the app can point at it",
      await p.$("#health") !== null);
   const sub = await p.textContent(".callout");
-  ok("the device-binding caveat is stated before anyone pays",
-     /tied to the browser/i.test(sub), sub.slice(0,80));
+  ok("what a subscription is actually attached to is stated before anyone pays",
+     /recovery code/i.test(sub) && /once/i.test(sub), sub.slice(0,90));
+  ok("and the page is honest that a lost code cannot be looked up",
+     /hash/i.test(await p.textContent("main")));
   await browser.close();
 }
 
