@@ -88,6 +88,24 @@ const PUBLIC_STUN = [
    your paste". One .trim() in one place, forever. */
 const E = (env, k) => (env && typeof env[k] === "string") ? env[k].trim() : env[k];
 
+/* And for the ones that are identifiers rather than prose, every space
+   goes — not just the ends. A client id arrived once as
+
+     951154917637- Oiu6sc77ni9ba06u8bv3lu6p359rre37.ap ps.googleusercontent.com
+
+   with spaces INSIDE it, because a copy off a wrapped line brings the
+   wrap with it. trim() cannot help with that, and the value still looks
+   right in a settings box, and Google answers "the OAuth client was not
+   found" — which sends you off to re-check the part that was correct.
+
+   None of these can legitimately contain whitespace: a key, a token, an
+   id, a hex secret. NOTIFY_FROM and ADMIN_EMAIL are not on this list,
+   because "STATIONS <hello@stations.fit>" has a space in it on purpose. */
+const ID = (env, k) => {
+  const v = E(env, k);
+  return typeof v === "string" ? v.replace(/\s+/g, "") : v;
+};
+
 const ledger = env => env.LEDGER.get(env.LEDGER.idFromName("v1"));
 
 export default {
@@ -132,7 +150,7 @@ export default {
 
     /* The list, as something readable on a phone. Same key as the CSV. */
     if (url.pathname === "/admin"){
-      if (!E(env,"ADMIN_KEY") || url.searchParams.get("key") !== E(env,"ADMIN_KEY"))
+      if (!ID(env,"ADMIN_KEY") || url.searchParams.get("key") !== ID(env,"ADMIN_KEY"))
         return new Response("nope", { status:404, headers:cors });
       const r = await ledger(env).fetch(new Request("https://l/dump"));
       return new Response(adminPage(await r.json(), url.searchParams.get("key")), {
@@ -142,7 +160,7 @@ export default {
     /* Deliberately not clever: one shared secret, and without it set the
        list simply is not reachable from the internet. */
     if (url.pathname === "/interest/export"){
-      if (!E(env,"ADMIN_KEY") || url.searchParams.get("key") !== E(env,"ADMIN_KEY"))
+      if (!ID(env,"ADMIN_KEY") || url.searchParams.get("key") !== ID(env,"ADMIN_KEY"))
         return new Response("nope", { status:404, headers:cors });
       const r = await ledger(env).fetch(new Request("https://l/export"));
       return new Response(await r.text(), {
@@ -239,12 +257,12 @@ export default {
    server side. Without the secrets set this degrades to public STUN,
    which connects most calls but not the ones behind symmetric NAT. */
 async function iceServers(env){
-  if (!E(env,"TURN_KEY_ID") || !E(env,"TURN_KEY_API_TOKEN")) return { iceServers: PUBLIC_STUN };
+  if (!ID(env,"TURN_KEY_ID") || !ID(env,"TURN_KEY_API_TOKEN")) return { iceServers: PUBLIC_STUN };
   try{
     const r = await fetch(
-      `https://rtc.live.cloudflare.com/v1/turn/keys/${E(env,"TURN_KEY_ID")}/credentials/generate-ice-servers`,
+      `https://rtc.live.cloudflare.com/v1/turn/keys/${ID(env,"TURN_KEY_ID")}/credentials/generate-ice-servers`,
       { method:"POST",
-        headers:{ "Authorization":`Bearer ${E(env,"TURN_KEY_API_TOKEN")}`, "Content-Type":"application/json" },
+        headers:{ "Authorization":`Bearer ${ID(env,"TURN_KEY_API_TOKEN")}`, "Content-Type":"application/json" },
         body: JSON.stringify({ ttl: 7200 }) }        // two hours covers any session
     );
     if (!r.ok) return { iceServers: PUBLIC_STUN };
@@ -880,11 +898,11 @@ async function coachScript(env, body){
 /* One place that talks to the mail provider, so swapping it later is one
    function and not a search. */
 async function sendMail(env, to, subject, text){
-  if (!E(env,"RESEND_API_KEY")) return false;
+  if (!ID(env,"RESEND_API_KEY")) return false;
   try{
     const r = await fetch("https://api.resend.com/emails", {
       method:"POST",
-      headers:{ "Authorization":"Bearer " + E(env,"RESEND_API_KEY"), "Content-Type":"application/json" },
+      headers:{ "Authorization":"Bearer " + ID(env,"RESEND_API_KEY"), "Content-Type":"application/json" },
       body: JSON.stringify({
         from: E(env,"NOTIFY_FROM") || "STATIONS <onboarding@resend.dev>",
         to: [to], subject, text })
@@ -894,7 +912,7 @@ async function sendMail(env, to, subject, text){
 }
 
 async function notify(env, body){
-  if (!E(env,"RESEND_API_KEY") || !E(env,"ADMIN_EMAIL")) return;
+  if (!ID(env,"RESEND_API_KEY") || !E(env,"ADMIN_EMAIL")) return;
   const who = String((body && body.email) || "").slice(0, 254);
   if (!who) return;
   await sendMail(env, E(env,"ADMIN_EMAIL"), "Someone hit the wall: " + who,
@@ -1007,7 +1025,7 @@ const TOKEN_DAYS = 180;
 const CODE_ALPHA = "23456789ABCDEFGHJKMNPQRSTVWXYZ";
 const CODE_LEN   = 12;
 
-function authOn(env){ return !!E(env,"AUTH_SECRET"); }
+function authOn(env){ return !!ID(env,"AUTH_SECRET"); }
 
 function b64url(bytes){
   let s = ""; for (const b of bytes) s += String.fromCharCode(b);
@@ -1049,7 +1067,7 @@ async function sha256hex(text){
 }
 
 async function authMac(env, msg){
-  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(E(env,"AUTH_SECRET")),
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(ID(env,"AUTH_SECRET")),
     { name:"HMAC", hash:"SHA-256" }, false, ["sign"]);
   return b64url(new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(msg))));
 }
@@ -1188,7 +1206,7 @@ async function acctMe(env, req, did){
 const G_AUTH  = "https://accounts.google.com/o/oauth2/v2/auth";
 const G_TOKEN = "https://oauth2.googleapis.com/token";
 
-function googleOn(env){ return !!(E(env,"GOOGLE_CLIENT_ID") && E(env,"GOOGLE_CLIENT_SECRET") && authOn(env)); }
+function googleOn(env){ return !!(ID(env,"GOOGLE_CLIENT_ID") && ID(env,"GOOGLE_CLIENT_SECRET") && authOn(env)); }
 
 function b64urlStr(str){ return b64url(new TextEncoder().encode(str)); }
 function unb64url(s){
@@ -1236,7 +1254,7 @@ async function googleStart(env, req, url){
     tok: h.startsWith("Bearer ") ? h.slice(7) : (url.searchParams.get("tok") || "")
   });
   const q = new URLSearchParams({
-    client_id: E(env,"GOOGLE_CLIENT_ID"),
+    client_id: ID(env,"GOOGLE_CLIENT_ID"),
     redirect_uri: url.origin + "/account/google/callback",
     response_type: "code",
     scope: "openid email profile",
@@ -1259,7 +1277,7 @@ async function googleCallback(env, url){
     const r = await fetch(G_TOKEN, {
       method:"POST", headers:{ "Content-Type":"application/x-www-form-urlencoded" },
       body: new URLSearchParams({
-        code, client_id: E(env,"GOOGLE_CLIENT_ID"), client_secret: E(env,"GOOGLE_CLIENT_SECRET"),
+        code, client_id: ID(env,"GOOGLE_CLIENT_ID"), client_secret: ID(env,"GOOGLE_CLIENT_SECRET"),
         redirect_uri: url.origin + "/account/google/callback",
         grant_type: "authorization_code"
       })
@@ -1270,7 +1288,7 @@ async function googleCallback(env, url){
     const claims = JSON.parse(unb64url(tk.id_token.split(".")[1] || ""));
     /* The three that matter. aud is the one that stops a valid token
        minted for somebody else's project being replayed at ours. */
-    if (claims.aud !== E(env,"GOOGLE_CLIENT_ID")) return bad("that sign-in was not for this app");
+    if (claims.aud !== ID(env,"GOOGLE_CLIENT_ID")) return bad("that sign-in was not for this app");
     if (!["https://accounts.google.com","accounts.google.com"].includes(claims.iss))
       return bad("that sign-in did not come from Google");
     if (!claims.exp || Number(claims.exp) * 1000 < Date.now()) return bad("that sign-in expired");
@@ -1331,7 +1349,7 @@ async function googleCallback(env, url){
 const LINK_MIN  = 15;        // a link is good for a quarter of an hour
 const LINK_MAX  = 5;         // per address per hour, and per IP per hour
 
-function mailOn(env){ return !!(E(env,"RESEND_API_KEY") && E(env,"NOTIFY_FROM") && authOn(env)); }
+function mailOn(env){ return !!(ID(env,"RESEND_API_KEY") && E(env,"NOTIFY_FROM") && authOn(env)); }
 
 /* Deliberately loose. Bouncing a real address because it has a plus in
    it is worse than accepting one typo. */
@@ -1392,13 +1410,13 @@ async function linkFinish(env, url){
     encodeURIComponent(await authSign(env, out.uid, out.gen)), 302);
 }
 
-function stripeOn(env){ return !!(E(env,"STRIPE_SECRET_KEY") && E(env,"STRIPE_PRICE_ID")); }
+function stripeOn(env){ return !!(ID(env,"STRIPE_SECRET_KEY") && ID(env,"STRIPE_PRICE_ID")); }
 
 async function stripeCall(env, path, form, method){
   const r = await fetch(STRIPE + path, {
     method: method || (form ? "POST" : "GET"),
     headers: {
-      "Authorization": "Bearer " + E(env,"STRIPE_SECRET_KEY"),
+      "Authorization": "Bearer " + ID(env,"STRIPE_SECRET_KEY"),
       "Content-Type": "application/x-www-form-urlencoded"
     },
     body: form ? new URLSearchParams(form).toString() : undefined
@@ -1413,7 +1431,7 @@ async function stripeCall(env, path, form, method){
 async function stripePrice(env){
   if (!stripeOn(env)) return { ok:false, configured:false };
   try{
-    const p = await stripeCall(env, "prices/" + encodeURIComponent(E(env,"STRIPE_PRICE_ID")));
+    const p = await stripeCall(env, "prices/" + encodeURIComponent(ID(env,"STRIPE_PRICE_ID")));
     const rec = p.recurring || {};
     const amount = (p.unit_amount == null) ? null : p.unit_amount / 100;
     return { ok:true, configured:true, amount, currency:(p.currency || "usd").toUpperCase(),
@@ -1437,7 +1455,7 @@ async function stripeCheckout(env, b, origin){
   try{
     const form = {
       mode: "subscription",
-      "line_items[0][price]": E(env,"STRIPE_PRICE_ID"),
+      "line_items[0][price]": ID(env,"STRIPE_PRICE_ID"),
       "line_items[0][quantity]": "1",
       /* client_reference_id is what ties the payment back to the device
          without asking anyone to make an account first. */
@@ -1483,13 +1501,13 @@ async function stripeActivate(env, b, req){
 /* Stripe signs every webhook. An unverified endpoint is an open door
    that anyone can use to grant themselves a subscription. */
 async function stripeVerify(env, raw, header){
-  if (!E(env,"STRIPE_WEBHOOK_SECRET") || !header) return false;
+  if (!ID(env,"STRIPE_WEBHOOK_SECRET") || !header) return false;
   const parts = Object.fromEntries(String(header).split(",").map(p => p.split("=", 2)));
   const t = parts.t, sig = parts.v1;
   if (!t || !sig) return false;
   /* Five minutes, so a captured request cannot be replayed later. */
   if (Math.abs(Date.now()/1000 - Number(t)) > 300) return false;
-  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(E(env,"STRIPE_WEBHOOK_SECRET")),
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(ID(env,"STRIPE_WEBHOOK_SECRET")),
     { name:"HMAC", hash:"SHA-256" }, false, ["sign"]);
   const mac = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(t + "." + raw));
   const hex = [...new Uint8Array(mac)].map(b => b.toString(16).padStart(2,"0")).join("");

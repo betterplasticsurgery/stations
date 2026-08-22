@@ -12,21 +12,23 @@ const src = fs.readFileSync(new URL("../worker/signal.js", import.meta.url), "ut
 /* The Worker reads every secret through E(), so the extracted blocks
    need it in scope. Pull the real one out rather than writing a second
    implementation that could drift from it. */
-const Esrc = src.slice(src.indexOf("const E = (env, k)"), src.indexOf("\nconst ledger = env"));
+const Esrc = src.slice(src.indexOf("const E = (env, k)"), src.indexOf("\n/* And for the ones"));
 const E = new Function(Esrc + "\nreturn E;")();
+const Isrc = src.slice(src.indexOf("const ID = (env, k)"), src.indexOf("\nconst ledger = env"));
+const ID = new Function("E", Isrc + "\nreturn ID;")(E);
 
 const block = src.slice(src.indexOf("const TOKEN_DAYS"), src.indexOf("async function whoIs"));
-const A = new Function("crypto", "TextEncoder", "btoa", "E",
+const A = new Function("crypto", "TextEncoder", "btoa", "E", "ID",
   block + "\nreturn { CODE_ALPHA, CODE_LEN, TOKEN_DAYS, b64url, newUid, newCode, prettyCode," +
           " tidyCode, validCode, sha256hex, authSign, authRead, sameString, authOn, authMac, b64url };")(
-  globalThis.crypto, globalThis.TextEncoder, globalThis.btoa, E);
+  globalThis.crypto, globalThis.TextEncoder, globalThis.btoa, E, ID);
 
 /* The Google half needs ALLOWED and the HMAC helpers from above, so it
    is pulled out as its own block with those injected. */
 const gblock = src.slice(src.indexOf("const G_AUTH"), src.indexOf("async function googleStart"));
-const G = new Function("crypto", "TextEncoder", "btoa", "atob", "E", "ALLOWED", "b64url", "authMac", "sameString", "authOn",
+const G = new Function("crypto", "TextEncoder", "btoa", "atob", "E", "ID", "ALLOWED", "b64url", "authMac", "sameString", "authOn",
   gblock + "\nreturn { googleOn, b64urlStr, unb64url, safeBack, stateSign, stateRead };")(
-  globalThis.crypto, globalThis.TextEncoder, globalThis.btoa, globalThis.atob, E,
+  globalThis.crypto, globalThis.TextEncoder, globalThis.btoa, globalThis.atob, E, ID,
   ["https://stations.fit","https://www.stations.fit","https://betterplasticsurgery.github.io"],
   null, null, null, null);
 
@@ -35,9 +37,9 @@ const ok = (n,c,x="") => c ? (pass++, console.log("  ok   "+n)) : (fail++, conso
 
 /* stateSign/stateRead close over authMac and sameString, which live in
    the first block. Rebuild G with the real ones now that A exists. */
-const G2 = new Function("crypto", "TextEncoder", "btoa", "atob", "E", "ALLOWED", "b64url", "authMac", "sameString", "authOn",
+const G2 = new Function("crypto", "TextEncoder", "btoa", "atob", "E", "ID", "ALLOWED", "b64url", "authMac", "sameString", "authOn",
   gblock + "\nreturn { googleOn, b64urlStr, unb64url, safeBack, stateSign, stateRead };")(
-  globalThis.crypto, globalThis.TextEncoder, globalThis.btoa, globalThis.atob, E,
+  globalThis.crypto, globalThis.TextEncoder, globalThis.btoa, globalThis.atob, E, ID,
   ["https://stations.fit","https://www.stations.fit","https://betterplasticsurgery.github.io"],
   A.b64url, A.authMac ?? null, A.sameString, A.authOn);
 
@@ -251,6 +253,22 @@ console.log("\npasted secrets");
   /* Whitespace only must not read as configured — otherwise a fat-fingered
      paste turns the feature on and then fails at the far end. */
   ok("whitespace alone is empty, so a gate stays shut", !E({ K:"   " }, "K"));
+
+  /* The one that actually bit. A client id copied off a wrapped line
+     arrives with spaces INSIDE it, which trim cannot touch, the settings
+     box renders identically, and Google says the client does not exist. */
+  ok("spaces inside an identifier are removed",
+     ID({ K:"951154917637- Oiu6sc.ap ps.googleusercontent.com" }, "K") ===
+        "951154917637-Oiu6sc.apps.googleusercontent.com");
+  ok("a newline inside one is removed", ID({ K:"abc\ndef" }, "K") === "abcdef");
+  ok("a tab inside one is removed", ID({ K:"abc\tdef" }, "K") === "abcdef");
+  ok("a clean identifier is untouched",
+     ID({ K:"sk_test_abc123" }, "K") === "sk_test_abc123");
+  ok("an unset identifier stays unset", ID({}, "K") === undefined);
+  /* NOTIFY_FROM is deliberately NOT an identifier — a display name has a
+     space in it on purpose, and stripping that would forge the From. */
+  ok("prose keeps its spaces, since NOTIFY_FROM reads through E",
+     E({ K:"STATIONS <hello@stations.fit>" }, "K") === "STATIONS <hello@stations.fit>");
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

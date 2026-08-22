@@ -9,13 +9,16 @@ const src = fs.readFileSync(new URL("../worker/signal.js", import.meta.url), "ut
 /* Secrets are read through E(), which trims — inject the real one
    rather than a copy that could drift from it. */
 const E = new Function(
-  src.slice(src.indexOf("const E = (env, k)"), src.indexOf("\nconst ledger = env")) +
+  src.slice(src.indexOf("const E = (env, k)"), src.indexOf("\n/* And for the ones")) +
   "\nreturn E;")();
+const ID = new Function("E",
+  src.slice(src.indexOf("const ID = (env, k)"), src.indexOf("\nconst ledger = env")) +
+  "\nreturn ID;")(E);
 
 const fn = src.slice(src.indexOf("async function stripeVerify"));
-const stripeVerify = new Function("crypto", "TextEncoder", "E",
+const stripeVerify = new Function("crypto", "TextEncoder", "E", "ID",
   "return " + fn.slice(0, fn.indexOf("\nasync function stripeWebhook")))(
-  globalThis.crypto, globalThis.TextEncoder, E);
+  globalThis.crypto, globalThis.TextEncoder, E, ID);
 
 let pass = 0, fail = 0;
 const ok = (n,c,x="") => c ? (pass++, console.log("  ok   "+n)) : (fail++, console.log("  FAIL "+n+(x?"  — "+x:"")));
@@ -54,8 +57,8 @@ ok("no configured secret means nothing is accepted",
 
 console.log("\nconfiguration gates");
 {
-  const gate = new Function("E", "return " + src.slice(src.indexOf("function stripeOn"),
-                                                  src.indexOf("async function stripeCall")))(E);
+  const gate = new Function("E", "ID", "return " + src.slice(src.indexOf("function stripeOn"),
+                                                  src.indexOf("async function stripeCall")))(E, ID);
   ok("billing is off with no keys", !gate({}));
   ok("off with only a secret key", !gate({ STRIPE_SECRET_KEY:"sk_test" }));
   ok("off with only a price", !gate({ STRIPE_PRICE_ID:"price_1" }));
