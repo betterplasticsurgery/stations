@@ -6,10 +6,16 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 
 const src = fs.readFileSync(new URL("../worker/signal.js", import.meta.url), "utf8");
+/* Secrets are read through E(), which trims — inject the real one
+   rather than a copy that could drift from it. */
+const E = new Function(
+  src.slice(src.indexOf("const E = (env, k)"), src.indexOf("\nconst ledger = env")) +
+  "\nreturn E;")();
+
 const fn = src.slice(src.indexOf("async function stripeVerify"));
-const stripeVerify = new Function("crypto", "TextEncoder",
+const stripeVerify = new Function("crypto", "TextEncoder", "E",
   "return " + fn.slice(0, fn.indexOf("\nasync function stripeWebhook")))(
-  globalThis.crypto, globalThis.TextEncoder);
+  globalThis.crypto, globalThis.TextEncoder, E);
 
 let pass = 0, fail = 0;
 const ok = (n,c,x="") => c ? (pass++, console.log("  ok   "+n)) : (fail++, console.log("  FAIL "+n+(x?"  — "+x:"")));
@@ -48,12 +54,22 @@ ok("no configured secret means nothing is accepted",
 
 console.log("\nconfiguration gates");
 {
-  const gate = new Function("return " + src.slice(src.indexOf("function stripeOn"),
-                                                  src.indexOf("async function stripeCall")))();
+  const gate = new Function("E", "return " + src.slice(src.indexOf("function stripeOn"),
+                                                  src.indexOf("async function stripeCall")))(E);
   ok("billing is off with no keys", !gate({}));
   ok("off with only a secret key", !gate({ STRIPE_SECRET_KEY:"sk_test" }));
   ok("off with only a price", !gate({ STRIPE_PRICE_ID:"price_1" }));
   ok("on only with both", !!gate({ STRIPE_SECRET_KEY:"sk_test", STRIPE_PRICE_ID:"price_1" }));
+  ok("and a whitespace-only paste does not count as configured",
+     !gate({ STRIPE_SECRET_KEY:"  ", STRIPE_PRICE_ID:"price_1" }));
+}
+
+{
+  /* Same paste hazard as everywhere else: a signing secret copied out of
+     Stripe's dashboard with a newline on the end must still verify. */
+  const t = now, sig = sign(body, t);
+  ok("a webhook secret pasted with a trailing newline still verifies",
+     await stripeVerify({ STRIPE_WEBHOOK_SECRET: SECRET + "\n" }, body, `t=${t},v1=${sig}`) === true);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

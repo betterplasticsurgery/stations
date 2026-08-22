@@ -9,18 +9,24 @@
 import fs from "node:fs";
 
 const src = fs.readFileSync(new URL("../worker/signal.js", import.meta.url), "utf8");
+/* The Worker reads every secret through E(), so the extracted blocks
+   need it in scope. Pull the real one out rather than writing a second
+   implementation that could drift from it. */
+const Esrc = src.slice(src.indexOf("const E = (env, k)"), src.indexOf("\nconst ledger = env"));
+const E = new Function(Esrc + "\nreturn E;")();
+
 const block = src.slice(src.indexOf("const TOKEN_DAYS"), src.indexOf("async function whoIs"));
-const A = new Function("crypto", "TextEncoder", "btoa",
+const A = new Function("crypto", "TextEncoder", "btoa", "E",
   block + "\nreturn { CODE_ALPHA, CODE_LEN, TOKEN_DAYS, b64url, newUid, newCode, prettyCode," +
           " tidyCode, validCode, sha256hex, authSign, authRead, sameString, authOn, authMac, b64url };")(
-  globalThis.crypto, globalThis.TextEncoder, globalThis.btoa);
+  globalThis.crypto, globalThis.TextEncoder, globalThis.btoa, E);
 
 /* The Google half needs ALLOWED and the HMAC helpers from above, so it
    is pulled out as its own block with those injected. */
 const gblock = src.slice(src.indexOf("const G_AUTH"), src.indexOf("async function googleStart"));
-const G = new Function("crypto", "TextEncoder", "btoa", "atob", "ALLOWED", "b64url", "authMac", "sameString", "authOn",
+const G = new Function("crypto", "TextEncoder", "btoa", "atob", "E", "ALLOWED", "b64url", "authMac", "sameString", "authOn",
   gblock + "\nreturn { googleOn, b64urlStr, unb64url, safeBack, stateSign, stateRead };")(
-  globalThis.crypto, globalThis.TextEncoder, globalThis.btoa, globalThis.atob,
+  globalThis.crypto, globalThis.TextEncoder, globalThis.btoa, globalThis.atob, E,
   ["https://stations.fit","https://www.stations.fit","https://betterplasticsurgery.github.io"],
   null, null, null, null);
 
@@ -29,9 +35,9 @@ const ok = (n,c,x="") => c ? (pass++, console.log("  ok   "+n)) : (fail++, conso
 
 /* stateSign/stateRead close over authMac and sameString, which live in
    the first block. Rebuild G with the real ones now that A exists. */
-const G2 = new Function("crypto", "TextEncoder", "btoa", "atob", "ALLOWED", "b64url", "authMac", "sameString", "authOn",
+const G2 = new Function("crypto", "TextEncoder", "btoa", "atob", "E", "ALLOWED", "b64url", "authMac", "sameString", "authOn",
   gblock + "\nreturn { googleOn, b64urlStr, unb64url, safeBack, stateSign, stateRead };")(
-  globalThis.crypto, globalThis.TextEncoder, globalThis.btoa, globalThis.atob,
+  globalThis.crypto, globalThis.TextEncoder, globalThis.btoa, globalThis.atob, E,
   ["https://stations.fit","https://www.stations.fit","https://betterplasticsurgery.github.io"],
   A.b64url, A.authMac ?? null, A.sameString, A.authOn);
 
@@ -227,6 +233,24 @@ console.log("\nwhat counts as an email");
     ok("accepts " + good, okE(good) === true);
   for (const bad of ["", "a", "a@b", "a b@c.co", "@b.co", "a@", "a@@b.co"])
     ok("rejects " + JSON.stringify(bad), okE(bad) === false);
+}
+
+console.log("\npasted secrets");
+{
+  /* A trailing newline in a pasted client id is invisible in a settings
+     box, passes every is-it-configured check because the string is not
+     empty, and makes the far end say it has never heard of you. Google
+     answers it with "invalid_client", which reads as a setup mistake
+     rather than a whitespace one. Cost us a round trip; now it cannot. */
+  ok("a trailing newline is trimmed", E({ K:"abc\n" }, "K") === "abc");
+  ok("a trailing space is trimmed", E({ K:"abc " }, "K") === "abc");
+  ok("a leading space is trimmed", E({ K:"  abc" }, "K") === "abc");
+  ok("a carriage return is trimmed", E({ K:"abc\r\n" }, "K") === "abc");
+  ok("a clean value is untouched", E({ K:"abc" }, "K") === "abc");
+  ok("an unset value stays unset", E({}, "K") === undefined);
+  /* Whitespace only must not read as configured — otherwise a fat-fingered
+     paste turns the feature on and then fails at the far end. */
+  ok("whitespace alone is empty, so a gate stays shut", !E({ K:"   " }, "K"));
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);
