@@ -37,8 +37,10 @@
      POST /account/redeem → hand that code to a second device.
      GET  /account/me     → who the bearer token says you are.
      POST /account/rotate → a fresh code, killing the old one.
-     POST /account/link/*  → magic-link sign-in. Dark until a mail
-                            provider is configured.
+   Not here yet: magic-link sign-in. The accts table carries an email
+   column so it can land without a migration, but there are no /link
+   routes and nothing sends mail. The recovery code is the only way an
+   account moves between devices today, and /terms/ says so.
 
    Deploy: see worker/README.md
    ========================================================= */
